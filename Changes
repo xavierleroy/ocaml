@@ -29,6 +29,11 @@ be mentioned in the 4.06 section below instead of here.)
 
 ### Code generation and optimizations:
 
+- MPR#7608: for ARM in Thumb mode, implement jump tables differently.
+  The previous implementation based on the TBH instruction can overflow
+  for very large functions.
+  (Xavier Leroy, report by Mantis user 'SP')
+
 ### Runtime system:
 
 ### Tools:
