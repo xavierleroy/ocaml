@@ -259,7 +259,7 @@ extern uintnat caml_spacetime_my_profinfo(struct ext_table**, uintnat);
 
 /* Deprecated alias for [caml_modify] */
 
-#define Modify(fp,val) caml_modify((fp), (val))
+#define Modify(fp,val) CAML_DEPRECATED("Modify", "caml_modify") caml_modify((fp), (val))
 
 #endif /* CAML_INTERNALS */
 
