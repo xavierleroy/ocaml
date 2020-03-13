@@ -420,8 +420,8 @@ FUNCTION(caml_ml_array_bound_error)
 G(caml_system__code_end):
 
         .data
-        .globl  G(caml_system__frametable)
-G(caml_system__frametable):
+        .globl  G(caml_system.frametable)
+G(caml_system.frametable):
         .long   1               /* one descriptor */
         .long   LBL(107)        /* return address into callback */
 #ifndef SYS_solaris

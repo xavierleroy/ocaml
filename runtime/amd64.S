@@ -696,9 +696,9 @@ ENDFUNCTION(G(caml_ml_array_bound_error))
 G(caml_system__code_end):
 
         .data
-        .globl  G(caml_system__frametable)
+        .globl  G(caml_system.frametable)
         .align  EIGHT_ALIGN
-G(caml_system__frametable):
+G(caml_system.frametable):
         .quad   1           /* one descriptor */
         .quad   LBL(107)    /* return address into callback */
         .value  -1          /* negative frame size => use callback link */
@@ -710,9 +710,9 @@ G(caml_system__frametable):
 
 #ifdef WITH_SPACETIME
         .data
-        .globl  G(caml_system__spacetime_shapes)
+        .globl  G(caml_system.spacetime_shapes)
         .align  EIGHT_ALIGN
-G(caml_system__spacetime_shapes):
+G(caml_system.spacetime_shapes):
         .quad   G(caml_start_program)
         .quad   2           /* indirect call point to OCaml code */
         .quad   LBL(107)    /* in caml_start_program / caml_callback* */

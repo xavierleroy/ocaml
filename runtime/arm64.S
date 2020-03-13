@@ -469,15 +469,15 @@ caml_system__code_end:
 
         .data
         .align  3
-        .globl  caml_system__frametable
-caml_system__frametable:
+        .globl  caml_system.frametable
+caml_system.frametable:
         .quad   1               /* one descriptor */
         .quad   .Lcaml_retaddr  /* return address into callback */
         .short  -1              /* negative frame size => use callback link */
         .short  0               /* no roots */
         .align  3
-        .type   caml_system__frametable, %object
-        .size   caml_system__frametable, .-caml_system__frametable
+        .type   caml_system.frametable, %object
+        .size   caml_system.frametable, .-caml_system.frametable
 
 /* Mark stack as non-executable */
         .section .note.GNU-stack,"",%progbits
