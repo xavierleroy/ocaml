@@ -77,11 +77,14 @@ let string_of_string_literal s =
   done;
   Buffer.contents b
 
+let dot_in_symbols_supported = Config.ccomp_type <> "msvc"
+
 let string_of_symbol prefix s =
   let spec = ref false in
   for i = 0 to String.length s - 1 do
     match String.unsafe_get s i with
-    | 'A'..'Z' | 'a'..'z' | '0'..'9' | '_' | '.' -> ()
+    | 'A'..'Z' | 'a'..'z' | '0'..'9' | '_' -> ()
+    | '.' when dot_in_symbols_supported -> ()
     | _ -> spec := true;
   done;
   if not !spec then if prefix = "" then s else prefix ^ s
@@ -90,7 +93,11 @@ let string_of_symbol prefix s =
     Buffer.add_string b prefix;
     String.iter
       (function
-        | ('A'..'Z' | 'a'..'z' | '0'..'9' | '_' | '.') as c -> Buffer.add_char b c
+        | ('A'..'Z' | 'a'..'z' | '0'..'9' | '_') as c -> Buffer.add_char b c
+        | '.' ->
+            if dot_in_symbols_supported
+            then Buffer.add_char b '.'
+            else Buffer.add_string b "$$"
         | c -> Printf.bprintf b "$%02x" (Char.code c)
       )
       s;
