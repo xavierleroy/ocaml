@@ -79,7 +79,7 @@ let (trap_size, trap_handler_offset, trap_previous_offset) =
 
 (* Output a symbol *)
 
-let emit_symbol s = Emitaux.emit_symbol '.' s
+let emit_symbol s = Emitaux.emit_symbol '$' s
 
 (* Output a label *)
 

@@ -54,7 +54,7 @@ let slot_offset loc cls =
 
 (* Output a symbol *)
 
-let emit_symbol s = Emitaux.emit_symbol '.' s
+let emit_symbol s = Emitaux.emit_symbol '$' s
 
 (* Output function call *)
 
