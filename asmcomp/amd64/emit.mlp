@@ -1147,7 +1147,8 @@ let end_assembly() =
 
   if system = S_linux then begin
     let frametable = Compilenv.make_symbol (Some "frametable") in
-    D.size frametable (ConstSub (ConstThis, ConstLabel frametable))
+    D.size (emit_symbol frametable)
+           (ConstSub (ConstThis, ConstLabel (emit_symbol frametable)))
   end;
 
   if Config.spacetime then begin
