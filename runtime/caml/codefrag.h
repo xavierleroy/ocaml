@@ -29,11 +29,12 @@ enum digest_status {
 };
 
 struct code_fragment {
-  char *code_start;
-  char *code_end;
-  int fragnum;
-  unsigned char digest[16];
-  enum digest_status digest_status;
+  char *code_start;             /* beginning of code block */
+  char *code_end;               /* end of code block (one past last byte) */
+  int fragnum;                  /* unique local identifier */
+  unsigned char digest[16];     /* digest (unique persistent identifier)  */
+  enum digest_status digest_status; /* how digest is computed */
+  struct code_fragment * next;  /* to build singly-linked lists */
 };
 
 /* Register a code fragment for addresses [start] (included)

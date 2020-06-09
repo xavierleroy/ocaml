@@ -31,6 +31,10 @@ static struct skiplist code_fragments_by_num = SKIPLIST_STATIC_INITIALIZER;
 
 static int code_fragments_counter = 0;
 
+static struct skiplist code_fragments_by_digest = SKIPLIST_STATIC_INITIALIZER;
+
+static struct code_fragment * code_fragments_recently_added = NULL;
+
 int caml_register_code_fragment(char * start, char * end,
                                 enum digest_status digest_kind,
                                 unsigned char * opt_digest)
@@ -58,6 +62,12 @@ int caml_register_code_fragment(char * start, char * end,
                        (uintnat) start, (uintnat) cf);
   caml_skiplist_insert(&code_fragments_by_num,
                        cf->fragnum, (uintnat) cf);
+  if (digest_kind != DIGEST_IGNORE) {
+    /* Queue the fragment for insertion in code_fragments_by_digest
+       the next time caml_find_code_fragment_by_digest is called. */
+    cf->next = code_fragments_recently_added;
+    code_fragments_recently_added = cf;
+  }
   return cf->fragnum;
 }
 
@@ -102,13 +112,46 @@ unsigned char * caml_digest_of_code_fragment(struct code_fragment * cf)
   return cf->digest;
 }
 
+Caml_inline uintnat key_of_digest(unsigned char * digest)
+{
+  uintnat key;
+  memcpy(&key, digest, sizeof(uintnat));
+  return key;
+}
+
 struct code_fragment *
    caml_find_code_fragment_by_digest(unsigned char digest[16])
 {
-  FOREACH_SKIPLIST_ELEMENT(e, &code_fragments_by_pc, {
-    struct code_fragment * cf = (struct code_fragment *) e->data;
-    unsigned char * d = caml_digest_of_code_fragment(cf);
-    if (d != NULL && memcmp(digest, d, 16) == 0) return cf;
-  })
+  struct code_fragment * cf;
+  uintnat key, data;
+  unsigned char * d;
+
+  /* Insert recently-added fragments into the code_fragments_by_digest
+     table, indexed by the top bits of their digest. */
+  while (code_fragments_recently_added != NULL) {
+    cf = code_fragments_recently_added;
+    code_fragments_recently_added = cf->next;
+    d = caml_digest_of_code_fragment(cf);
+    CAMLassert (d != NULL);
+    key = key_of_digest(d);
+    if (caml_skiplist_find(&code_fragments_by_digest, key, &data)) {
+      /* Collision!  Chain via the "next" field. */
+      cf->next = (struct code_fragment *) data;
+    } else {
+      cf->next = NULL;
+    }
+    caml_skiplist_insert(&code_fragments_by_digest, key, (uintnat) cf);
+    /* Stop early if we find the digest we're looking for. */
+    if (memcmp(digest, d, 16) == 0) return cf;
+  }
+  /* Look the digest up in code_fragments_by_digest */
+  key = key_of_digest(digest);
+  if (! caml_skiplist_find(&code_fragments_by_digest, key, &data))
+    return NULL;
+  for (cf = (struct code_fragment *) data; cf != NULL; cf = cf->next) {
+    CAMLassert(cf->digest_status == DIGEST_NOW ||
+               cf->digest_status == DIGEST_PROVIDED);
+    if (memcmp(digest, cf->digest, 16) == 0) return cf;
+  }
   return NULL;
 }
