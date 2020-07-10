@@ -41,7 +41,7 @@ and ('a, 'b) bucketlist =
 let version_number (h: ('a, 'b) t) =
   if Obj.size (Obj.repr h) < 4 then 1 else 2
 
-let first_supported_version_number = 1
+let first_supported_version_number = 2
 let last_version_number = 2
 
 exception Unsupported_version_number of int
@@ -53,8 +53,10 @@ exception Unsupported_version_number of int
 *)
 
 let ongoing_traversal h =
-  version_number h < 2 (* compatibility with old hash tables *)
-  || h.initial_size < 0
+  let vn = version_number h in
+  if vn >= 2
+  then h.initial_size < 0
+  else raise (Unsupported_version_number vn)
 
 let flip_ongoing_traversal h =
   h.initial_size <- - h.initial_size
@@ -123,7 +125,10 @@ let copy_bucketlist = function
       loop r next;
       r
 
-let copy h = { h with data = Array.map copy_bucketlist h.data }
+let copy h = 
+  let vn = version_number h in
+  if vn < 2 then raise (Unsupported_version_number vn);
+  { h with data = Array.map copy_bucketlist h.data }
 
 let length h = h.size
 
@@ -508,18 +513,15 @@ module Make(H: HashedType): (S with type key = H.t) =
 
 external seeded_hash_param :
   int -> int -> int -> 'a -> int = "caml_hash" [@@noalloc]
-external old_hash_param :
-  int -> int -> 'a -> int = "caml_hash_univ_param" [@@noalloc]
 
 let hash x = seeded_hash_param 10 100 0 x
 let hash_param n1 n2 x = seeded_hash_param n1 n2 0 x
 let seeded_hash seed x = seeded_hash_param 10 100 seed x
 
 let key_index h key =
-  (* compatibility with old hash tables *)
-  if Obj.size (Obj.repr h) >= 3
+  if Obj.size (Obj.repr h) >= 3  (* version >= 2 *)
   then (seeded_hash_param 10 100 h.seed key) land (Array.length h.data - 1)
-  else (old_hash_param 10 100 key) mod (Array.length h.data)
+  else raise (Unsupported_version_number 1)
 
 let add h key data =
   let i = key_index h key in
