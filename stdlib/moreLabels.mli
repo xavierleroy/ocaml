@@ -125,6 +125,12 @@ module Hashtbl : sig
   val seeded_hash : int -> 'a -> int
   val hash_param : int -> int -> 'a -> int
   val seeded_hash_param : int -> int -> int -> 'a -> int
+  val version_number : ('a, 'b) t -> int
+  val first_supported_version_number : int
+  val last_version_number : int
+  exception Unsupported_version_number of int
+  val rebuild : ?random:bool -> ('a, 'b) t -> ('a, 'b) t
+
 end
 
 module Map : sig

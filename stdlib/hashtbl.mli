@@ -481,3 +481,52 @@ val seeded_hash_param : int -> int -> int -> 'a -> int
    an integer seed.  Usage:
    [Hashtbl.seeded_hash_param meaningful total seed x].
    @since 4.00.0 *)
+
+(** {1 Versioning} *)
+
+(** During the history of OCaml, there have been several
+    implementations of the Hashtbl interface and of the polymorphic hash
+    functions.  This can be problematic when hash tables are made
+    persistent, e.g. marshaled to files.  The functions below
+    provide mechanisms to deal with changes of hash table implementations.
+    We identify these implementations by version numbers:
+-   Version 1 was the initial implementation, used until OCaml 3.12.1.
+-   Version 2 is the Murmur3-based implementation introduced in OCaml 4.00.
+*)
+
+val version_number : ('a, 'b) t -> int
+(** The version number for the implementation of the given hash table. *)
+
+(** The version number for the hash table implementation currently
+    in use.  For any hash table [h] created by the current implementation,
+    [version_number h] is equal to [current_version_number]. *)
+
+val first_supported_version_number : int
+(** The version number for the first hash table implementation
+    still supported.  Hash tables having version numbers between
+    {!Hashtbl.first_supported_version_number} (inclusive) and
+    {!Hashtbl.last_version_number} (inclusive) can be operated upon
+    by the functions in this module. *)
+
+val last_version_number : int
+(** The version number for the most recent hash table implementation.
+    See {!Hashtbl.first_supported_version_number} *)
+
+exception Unsupported_version_number of int
+(** Exception raised by some functions in this {!Hashtbl} module
+    when they are given a hash table with version number strictly
+    less than [first_supported_version_number].  *)
+
+val rebuild : ?random:bool -> ('a, 'b) t -> ('a, 'b) t
+(** Convert the given hash table [h] to a supported hash table
+    implementation.  A new hash table is returned, containing the same
+    (key, value) bindings as [h].  The new hash table supports all
+    operations in this module.  It is randomized if [h] was randomized,
+    or the optional [random] parameter is true, or if the default is
+    to create randomized hash tables; see {!Hashtbl.create} for more
+    information.
+    
+    The [rebuild] function is guaranteed to work for all hash table
+    versions ever used by OCaml.  In other words, it will never raise
+    the [Unsupported_version_number] exception. *)
+
