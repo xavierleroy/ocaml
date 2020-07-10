@@ -23,6 +23,7 @@ type ('a, 'b) t =
     mutable data: ('a, 'b) bucketlist array;  (* the buckets *)
     mutable seed: int;                        (* for randomization *)
     mutable initial_size: int;                (* initial array size *)
+    version: int                              (* which hash function is used *)
   }
 
 and ('a, 'b) bucketlist =
@@ -32,17 +33,26 @@ and ('a, 'b) bucketlist =
               mutable next: ('a, 'b) bucketlist }
 
 (* Versioning the format of hash tables.
-   - Version 1: ad-hoc multiplicative hashing; fields {size, data}.
-     Introduced in OCaml 1.00, standard until 4.00.
-   - Version 2: Murmur3 hashing; fields {size, data, seed. initial_size}
+   - Version 1: ad-hoc linear congruential hashing;
+                fields {size, data}.
+     Introduced in OCaml 1.00, standard until 4.00, removed in 4.12.
+   - Version 2: Murmur3 hashing; 
+                fields {size, data, seed. initial_size}
      Introduced in OCaml 4.00.
+   - Version 3: Murmur3 hashing;
+                fields {size, data, seed. initial_size; version = 3}
+     Introduced in OCaml 4.12.
+   - Version 4: SipHash 1-3 hashing;
+                fields {size, data, seed. initial_size; version = 4}
+     Introduced in OCaml 4.12.
 *)
 
 let version_number (h: ('a, 'b) t) =
-  if Obj.size (Obj.repr h) < 4 then 1 else 2
+  if Obj.size (Obj.repr h) >= 5 then h.version
+  else if Obj.size (Obj.repr h) = 4 then 2 else 1
 
 let first_supported_version_number = 2
-let last_version_number = 2
+let last_version_number = 4
 
 exception Unsupported_version_number of int
 
@@ -90,7 +100,8 @@ let rec power_2_above x n =
 let create ?(random = !randomized) initial_size =
   let s = power_2_above 16 initial_size in
   let seed = if random then Random.State.bits (Lazy.force prng) else 0 in
-  { initial_size = s; size = 0; seed = seed; data = Array.make s Empty }
+  { initial_size = s; size = 0; seed = seed; data = Array.make s Empty;
+    version = if random then 4 else 3 }
 
 let clear h =
   if h.size > 0 then begin
@@ -128,7 +139,14 @@ let copy_bucketlist = function
 let copy h = 
   let vn = version_number h in
   if vn < 2 then raise (Unsupported_version_number vn);
-  { h with data = Array.map copy_bucketlist h.data }
+  (* A version 2 table uses Murmurhash but lacks the [version] field.
+     So we cannot do [{ h with data = Array.map copy_bucketlist h.data }].
+     If [h] is a version 2 table, we produce a version 3 table. *)
+  { size = h.size;
+    data = Array.map copy_bucketlist h.data;
+    seed = h.seed;
+    initial_size = h.initial_size;
+    version = if vn = 2 then 3 else vn }
 
 let length h = h.size
 
@@ -511,17 +529,33 @@ module Make(H: HashedType): (S with type key = H.t) =
 (* Code included below the functorial interface to guard against accidental
    use - see #2202 *)
 
-external seeded_hash_param :
-  int -> int -> int -> 'a -> int = "caml_hash" [@@noalloc]
+(* Versions 2 and 3 uses the MurmurHash 3 hash function.
+   Version 4 uses the SIP-1-3 hash function.
 
-let hash x = seeded_hash_param 10 100 0 x
-let hash_param n1 n2 x = seeded_hash_param n1 n2 0 x
-let seeded_hash seed x = seeded_hash_param 10 100 seed x
+   We keep MurmurHash 3 for the recommended non-seeded hash functions
+   ([hash], [hash_param]).
+   We use SIP-1-3 for the recommended seeded hash functions
+   ([seeded_hash], [seeded_hash_param]).
+*)
+
+external hash_v2 : int -> int -> int -> 'a -> int = "caml_hash" [@@noalloc]
+external hash_v3 : int -> int -> int -> 'a -> int = "caml_hash" [@@noalloc]
+external hash_v4 : int -> int -> int -> 'a -> int = "caml_hash_v4" [@@noalloc]
+
+let hash x = hash_v3 10 100 0 x
+let hash_param n1 n2 x = hash_v3 n1 n2 0 x
+let seeded_hash seed x = hash_v4 10 100 seed x
+let seeded_hash_param = hash_v4
 
 let key_index h key =
-  if Obj.size (Obj.repr h) >= 3  (* version >= 2 *)
-  then (seeded_hash_param 10 100 h.seed key) land (Array.length h.data - 1)
-  else raise (Unsupported_version_number 1)
+  if Obj.size (Obj.repr h) >= 5 then (* version >= 3 *)
+    if h.version = 3
+    then (hash_v3 10 100 h.seed key) land (Array.length h.data - 1)
+    else (hash_v4 10 100 h.seed key) land (Array.length h.data - 1)
+  else if Obj.size (Obj.repr h) = 4 then  (* version 2 *)
+    (hash_v2 10 100 h.seed key) land (Array.length h.data - 1)
+  else
+    raise (Unsupported_version_number 1)
 
 let add h key data =
   let i = key_index h key in
@@ -632,7 +666,8 @@ let rebuild ?(random = !randomized) h =
     size = sz;
     data = Array.make sz Empty;
     seed = seed;
-    initial_size = if version_number h >= 2 then h.initial_size else sz
+    initial_size = if version_number h >= 2 then h.initial_size else sz;
+    version = if random then 4 else 3
   } in
   insert_all_buckets (key_index h') false h.data h'.data;
   h'

@@ -25,8 +25,8 @@
 #include "caml/memory.h"
 #include "caml/hash.h"
 
-/* The new implementation, based on MurmurHash 3,
-     http://code.google.com/p/smhasher/  */
+/* Generic hashing, version 2 (also used for version 3 in hashtbl.ml).
+   Based on MurmurHash 3, https://github.com/aappleby/smhasher */
 
 #define ROTL32(x,n) ((x) << n | (x) >> (32-n))
 
@@ -179,7 +179,7 @@ CAMLexport uint32_t caml_hash_mix_string(uint32_t h, value s)
 /* Maximal number of Forward_tag links followed in one step */
 #define MAX_FORWARD_DEREFERENCE 1000
 
-/* The generic hash function */
+/* The generic hash function, version 2 */
 
 CAMLprim value caml_hash(value count, value limit, value seed, value obj)
 {
@@ -299,6 +299,250 @@ CAMLprim value caml_hash(value count, value limit, value seed, value obj)
   /* Fold result to the range [0, 2^30-1] so that it is a nonnegative
      OCaml integer both on 32 and 64-bit platforms. */
   return Val_int(h & 0x3FFFFFFFU);
+}
+
+/* Generic hashing, version 4.
+   Based on SipHash-1-3, https://github.com/veorq/SipHash */
+
+#define ROTL64(x,n) ((x) << n | (x) >> (64-n))
+
+struct sip_state {
+  uint64_t v0, v1, v2, v3;
+};
+
+static void sip_init(struct sip_state * st, uint64_t seed)
+{
+  st->v0 = UINT64_C(0x736f6d6570736575);
+  st->v1 = UINT64_C(0x646f72616e646f6d);
+  st->v2 = UINT64_C(0x6c7967656e657261);
+  st->v3 = UINT64_C(0x7465646279746573);
+  st->v2 ^= seed;
+  st->v0 ^= seed;
+}
+
+Caml_inline void sip_round(struct sip_state * st)
+{
+  st->v0 += st->v1;
+  st->v1 = ROTL64(st->v1, 13);
+  st->v1 ^= st->v0;
+  st->v0 = ROTL64(st->v0, 32);
+  st->v2 += st->v3;
+  st->v3 = ROTL64(st->v3, 16);
+  st->v3 ^= st->v2;
+  st->v0 += st->v3;
+  st->v3 = ROTL64(st->v3, 21);
+  st->v3 ^= st->v0;
+  st->v2 += st->v1;
+  st->v1 = ROTL64(st->v1, 17);
+  st->v1 ^= st->v2;
+  st->v2 = ROTL64(st->v2, 32);
+}
+
+static uint64_t sip_final(struct sip_state * st)
+{
+  int i;
+  st->v2 ^= 0xFF;
+  /* Three rounds at the end */
+  for (i = 0; i < 3; i++) sip_round(st);
+  /* Fold state down to 64 bits */
+  return st->v0 ^ st->v1 ^ st->v2 ^ st->v3;
+}
+
+/* Mix a 64-bit integer */
+
+static void sip_uint64(struct sip_state * st, uint64_t x)
+{
+  st->v3 ^= x;
+  sip_round(st);
+  st->v0 ^= x;
+}
+
+/* Mix a double-precision float.
+   Treats +0.0 and -0.0 identically.
+   Treats all NaNs identically.
+*/
+
+static void sip_double(struct sip_state * st, double d)
+{
+  union {
+    double d;
+    uint64_t i;
+  } u;
+  uint64_t i;
+  /* Convert to 64-bit integer */
+  u.d = d; i = u.i;
+  /* Normalize NaNs */
+  if ((i & UINT64_C(0x7FF0000000000000)) == UINT64_C(0x7FF0000000000000)
+      && (i & UINT64_C(0x000FFFFFFFFFFFFF)) != 0) {
+    i = 0x7FF0000000000001;
+  }
+  /* Normalize -0 into +0 */
+  else if (i == 0x8000000000000000) {
+    i = 0;
+  }
+  sip_uint64(st, i);
+}
+
+/* Mix an OCaml string */
+
+static void sip_string(struct sip_state * st, value s)
+{
+  mlsize_t len = caml_string_length(s);
+  mlsize_t i;
+  uint64_t w;
+
+  /* Mix by 64-bit blocks (little-endian) */
+  for (i = 0; i + 8 <= len; i += 8) {
+#if defined(ARCH_SIXTYFOUR) && !defined(ARCH_BIG_ENDIAN)
+    w = *((uint64_t *) &Byte_u(s, i));
+#else
+    w = (uint64_t) Byte_u(s, i)
+      | ((uint64_t) Byte_u(s, i + 1) << 8)
+      | ((uint64_t) Byte_u(s, i + 2) << 16)
+      | ((uint64_t) Byte_u(s, i + 3) << 24)
+      | ((uint64_t) Byte_u(s, i + 4) << 32)
+      | ((uint64_t) Byte_u(s, i + 5) << 40)
+      | ((uint64_t) Byte_u(s, i + 6) << 48)
+      | ((uint64_t) Byte_u(s, i + 7) << 56);
+#endif
+    sip_uint64(st, w);
+  }
+  /* Finish with up to 7 bytes.  Also use the low 8 bits of the length. */
+  w = (uint64_t) len << 56;
+  switch (len & 7) {
+  case 7: w |= (uint64_t) Byte_u(s, i + 6) << 48;  /* fallthrough */
+  case 6: w |= (uint64_t) Byte_u(s, i + 5) << 40;  /* fallthrough */
+  case 5: w |= (uint64_t) Byte_u(s, i + 4) << 32;  /* fallthrough */
+  case 4: w |= (uint64_t) Byte_u(s, i + 3) << 24;  /* fallthrough */
+  case 3: w |= (uint64_t) Byte_u(s, i + 2) << 16;  /* fallthrough */
+  case 2: w |= (uint64_t) Byte_u(s, i + 1) << 8;   /* fallthrough */
+  case 1: w |= (uint64_t) Byte_u(s, i + 0);        /* fallthrough */
+  }
+  sip_uint64(st, w);
+}
+
+/* The generic hash function, version 4 */
+
+CAMLprim value caml_hash_v4(value count, value limit, value seed, value obj)
+{
+  value queue[HASH_QUEUE_SIZE]; /* Queue of values to examine */
+  intnat rd;                    /* Position of first value in queue */
+  intnat wr;                    /* One past position of last value in queue */
+  intnat sz;                    /* Max number of values to put in queue */
+  intnat num;                   /* Max number of meaningful values to see */
+  struct sip_state st;          /* Rolling hash */
+  value v;
+  mlsize_t i, len;
+
+  sip_init(&st, Long_val(seed));
+  sz = Long_val(limit);
+  if (sz < 0 || sz > HASH_QUEUE_SIZE) sz = HASH_QUEUE_SIZE;
+  num = Long_val(count);
+  queue[0] = obj; rd = 0; wr = 1;
+
+  while (rd < wr && num > 0) {
+    v = queue[rd++];
+  again:
+    if (Is_long(v)) {
+      /* Force sign extension to 64-bits to make sure that negative numbers
+         representable in 32 bits produce the same hash
+         on 32 and 64 bit platforms. */
+      sip_uint64(&st, (int64_t) v);
+      num--;
+    }
+    else if (!Is_in_value_area(v)) {
+      /* v is a pointer outside the heap, probably a code pointer.
+         Shall we count it?  Let's say yes by compatibility with old code. */
+      sip_uint64(&st, v);
+      num--;
+    }
+    else {
+      switch (Tag_val(v)) {
+      case String_tag:
+        sip_string(&st, v);
+        num--;
+        break;
+      case Double_tag:
+        sip_double(&st, Double_val(v));
+        num--;
+        break;
+      case Double_array_tag:
+        for (i = 0, len = Wosize_val(v) / Double_wosize; i < len; i++) {
+          sip_double(&st, Double_flat_field(v, i));
+          num--;
+          if (num <= 0) break;
+        }
+        break;
+      case Abstract_tag:
+        /* Block contents unknown.  Do nothing. */
+        break;
+      case Infix_tag:
+        /* Mix in the offset to distinguish different functions from
+           the same mutually-recursive definition */
+        sip_uint64(&st, Infix_offset_val(v));
+        v = v - Infix_offset_val(v);
+        goto again;
+      case Forward_tag:
+        /* PR#6361: we can have a loop here, so limit the number of
+           Forward_tag links being followed */
+        for (i = MAX_FORWARD_DEREFERENCE; i > 0; i--) {
+          v = Forward_val(v);
+          if (Is_long(v) || !Is_in_value_area(v) || Tag_val(v) != Forward_tag)
+            goto again;
+        }
+        /* Give up on this object and move to the next */
+        break;
+      case Object_tag:
+        sip_uint64(&st, Oid_val(v));
+        num--;
+        break;
+      case Custom_tag:
+        /* If no hashing function provided, do nothing. */
+        /* Only use low 32 bits of custom hash, for 32/64 compatibility */
+        if (Custom_ops_val(v)->hash != NULL) {
+          uint32_t n = (uint32_t) Custom_ops_val(v)->hash(v);
+          sip_uint64(&st, n);
+          num--;
+        }
+        break;
+#ifdef NO_NAKED_POINTERS
+      case Closure_tag: {
+        mlsize_t startenv;
+        len = Wosize_val(v);
+        startenv = Start_env_closinfo(Closinfo_val(v));
+        CAMLassert (startenv <= len);
+        /* Mix in the tag and size, but do not count this towards [num] */
+        sip_uint64(&st, Whitehd_hd(Hd_val(v)));
+        /* Mix the code pointers, closure info fields, and infix headers */
+        for (i = 0; i < startenv; i++) {
+          sip_uint64(&st, Field(v, i));
+          num--;
+        }
+        /* Copy environment fields into queue,
+           not exceeding the total size [sz] */
+        for (/*nothing*/; i < len; i++) {
+          if (wr >= sz) break;
+          queue[wr++] = Field(v, i);
+        }
+        break;
+      }
+#endif
+      default:
+        /* Mix in the tag and size, but do not count this towards [num] */
+        sip_uint64(&st, Whitehd_hd(Hd_val(v)));
+        /* Copy fields into queue, not exceeding the total size [sz] */
+        for (i = 0, len = Wosize_val(v); i < len; i++) {
+          if (wr >= sz) break;
+          queue[wr++] = Field(v, i);
+        }
+        break;
+      }
+    }
+  }
+  /* Final mixing of bits */
+  /* Fold result to the range [0, 2^30-1] so that it is a nonnegative
+     OCaml integer both on 32 and 64-bit platforms. */
+  return Val_int(sip_final(&st) & 0x3FFFFFFFU);
 }
 
 /* Hashing variant tags */

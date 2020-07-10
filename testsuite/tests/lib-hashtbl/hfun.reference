@@ -1,3 +1,4 @@
+==== Hashtbl.hash ====
 -- Strings:
 ""		00000000
 "Hello world"	364b8272
@@ -25,3 +26,31 @@ NaN#3		3228858d
 [0..10]		0ade0fc9
 [0..12]		0ade0fc9
 [10..0]		0cd6259d
+==== Hashtbl.seeded_hash 42 ====
+-- Strings:
+""		326ab327
+"Hello world"	0ed3d25a
+-- Integers:
+0		1304cba0
+-1		2b472d08
+42		0845c1a5
+2^30-1		3da6106d
+-2^30		1c2d673a
+-- Floats:
++0.0		326ab327
+-0.0		326ab327
++infty		1aabc5b6
+-infty		19bc5f05
+NaN		16bf7f33
+NaN#2		16bf7f33
+NaN#3		16bf7f33
+-- Native integers:
+0		326ab327
+-1		1069a280
+42		038178b4
+2^30-1		317fae3b
+-2^30		3948780d
+-- Lists:
+[0..10]		35088377
+[0..12]		35088377
+[10..0]		31cc91c9
