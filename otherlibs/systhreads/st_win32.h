@@ -160,53 +160,100 @@ Caml_inline void st_thread_yield(st_masterlock * m)
 
 /* Mutexes */
 
-typedef CRITICAL_SECTION * st_mutex;
+struct st_mutex_ {
+  CRITICAL_SECTION crit;
+  int recursive;
+  DWORD owner;
+  uintnat count;
+};
 
-static DWORD st_mutex_create(st_mutex * res)
+typedef struct st_mutex_ * st_mutex;
+
+static DWORD st_mutex_create(st_mutex * res, int recursive)
 {
-  st_mutex m = caml_stat_alloc_noexc(sizeof(CRITICAL_SECTION));
+  st_mutex m = caml_stat_alloc_noexc(sizeof(struct st_mutex_));
   if (m == NULL) return ERROR_NOT_ENOUGH_MEMORY;
-  InitializeCriticalSection(m);
+  InitializeCriticalSection(m->crit);
+  m->recursive = recursive;
+  m->count = 0;
   *res = m;
   return 0;
 }
 
 static DWORD st_mutex_destroy(st_mutex m)
 {
-  DeleteCriticalSection(m);
+  DeleteCriticalSection(m->crit);
   caml_stat_free(m);
-  return 0;
-}
-
-Caml_inline DWORD st_mutex_lock(st_mutex m)
-{
-  TRACE1("st_mutex_lock", m);
-  EnterCriticalSection(m);
-  TRACE1("st_mutex_lock (done)", m);
   return 0;
 }
 
 /* Error codes with the 29th bit set are reserved for the application */
 
-#define PREVIOUSLY_UNLOCKED 0
-#define ALREADY_LOCKED (1<<29)
+#define MUTEX_DEADLOCK (1<<29 | 1)
+#define MUTEX_PREVIOUSLY_UNLOCKED 0
+#define MUTEX_ALREADY_LOCKED (1 << 29)
+#define MUTEX_NOT_OWNED (1<<29 | 2)
+
+Caml_inline DWORD st_mutex_lock(st_mutex m)
+{
+  TRACE1("st_mutex_lock", m);
+  /* Critical sections are recursive locks, so this will succeed
+     if we already own the lock */
+  EnterCriticalSection(m->crit);
+  if (m->count == 0) {
+    /* There was no previous owner.  Now, we are the owner. */
+    m->owner = GetCurrentThreadId();
+    m->count = 1;
+  }
+  else if (m->recursive) {
+    m->count ++;
+  }
+  else {
+    /* The mutex was already locked.  Return an error. */
+    TRACE1("st_mutex_lock (deadlock)", m);
+    LeaveCriticalSection(m->crit);
+    return MUTEX_DEADLOCK;
+  }
+  TRACE1("st_mutex_lock (done)", m);
+  return 0;
+}
 
 Caml_inline DWORD st_mutex_trylock(st_mutex m)
 {
   TRACE1("st_mutex_trylock", m);
-  if (TryEnterCriticalSection(m)) {
-    TRACE1("st_mutex_trylock (success)", m);
-    return PREVIOUSLY_UNLOCKED;
-  } else {
+  if (! TryEnterCriticalSection(m)) {
     TRACE1("st_mutex_trylock (failure)", m);
-    return ALREADY_LOCKED;
+    return MUTEX_ALREADY_LOCKED;
   }
+  if (m->count == 0) {
+    /* There was no previous owner.  Now, we are the owner. */
+    m->owner = GetCurrentThreadId();
+    m->count = 1;
+  }
+  else if (m->recursive) {
+    m->count ++;
+  }
+  else {
+    /* The mutex was already locked.  Return an error. */
+    TRACE1("st_mutex_lock (already locked by self)", m);
+    LeaveCriticalSection(m->crit);
+    return MUTEX_ALREADY_LOCKED;
+  }
+  TRACE1("st_mutex_lock (done)", m);
+  return MUTEX_PREVIOUSLY_UNLOCKED;
 }
 
 Caml_inline DWORD st_mutex_unlock(st_mutex m)
 {
+  /* This is a racy access to m->count and m->owner.
+     It seems correct assuming TSO memory. */
+  if (m->count == 0 || m->owner != GetCurrentThreadId()) {
+    TRACE1("st_mutex_unlock (error)", m);
+    return MUTEX_NOT_OWNED;
+  }
   TRACE1("st_mutex_unlock", m);
-  LeaveCriticalSection(m);
+  m->count--;
+  LeaveCriticalSection(m->crit);
   return 0;
 }
 
@@ -373,16 +420,28 @@ static void st_check_error(DWORD retcode, char * msg)
 
   if (retcode == 0) return;
   if (retcode == ERROR_NOT_ENOUGH_MEMORY) caml_raise_out_of_memory();
-  ret = FormatMessage(FORMAT_MESSAGE_FROM_SYSTEM|FORMAT_MESSAGE_IGNORE_INSERTS,
-                      NULL,
-                      retcode,
-                      0,
-                      err,
-                      sizeof(err)/sizeof(wchar_t),
-                      NULL);
-  if (! ret) {
-    ret =
-      swprintf(err, sizeof(err)/sizeof(wchar_t), L"error code %lx", retcode);
+  switch (retcode) {
+  case MUTEX_DEADLOCK:
+    ret = swprintf(err, sizeof(err)/sizeof(wchar_t),
+                   L"Mutex is already locked by calling thread");
+    break;
+  case MUTEX_NOT_OWNED:
+    ret = swprintf(err, sizeof(err)/sizeof(wchar_t),
+                   L"Mutex is not locked by calling thread");
+    break;
+  default:
+    ret = FormatMessage(
+             FORMAT_MESSAGE_FROM_SYSTEM|FORMAT_MESSAGE_IGNORE_INSERTS,
+             NULL,
+             retcode,
+             0,
+             err,
+             sizeof(err)/sizeof(wchar_t),
+             NULL);
+    if (! ret) {
+      ret =
+        swprintf(err, sizeof(err)/sizeof(wchar_t), L"error code %lx", retcode);
+    }
   }
   msglen = strlen(msg);
   errlen = win_wide_char_to_multi_byte(err, ret, NULL, 0);

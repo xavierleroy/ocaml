@@ -269,11 +269,11 @@ static void caml_io_mutex_lock(struct channel *chan)
   st_mutex mutex = chan->mutex;
 
   if (mutex == NULL) {
-    st_check_error(st_mutex_create(&mutex), "channel locking"); /*PR#7038*/
+    st_check_error(st_mutex_create(&mutex, 1), "channel locking"); /*PR#7038*/
     chan->mutex = mutex;
   }
   /* PR#4351: first try to acquire mutex without releasing the master lock */
-  if (st_mutex_trylock(mutex) == PREVIOUSLY_UNLOCKED) {
+  if (st_mutex_trylock(mutex) == MUTEX_PREVIOUSLY_UNLOCKED) {
     st_tls_set(last_channel_locked_key, (void *) chan);
     return;
   }
@@ -796,7 +796,7 @@ CAMLprim value caml_mutex_new(value unit)        /* ML */
 {
   st_mutex mut = NULL;          /* suppress warning */
   value wrapper;
-  st_check_error(st_mutex_create(&mut), "Mutex.create");
+  st_check_error(st_mutex_create(&mut, 0), "Mutex.create");
   wrapper = caml_alloc_custom(&caml_mutex_ops, sizeof(st_mutex *),
                               0, 1);
   Mutex_val(wrapper) = mut;
@@ -809,7 +809,7 @@ CAMLprim value caml_mutex_lock(value wrapper)     /* ML */
   st_retcode retcode;
 
   /* PR#4351: first try to acquire mutex without releasing the master lock */
-  if (st_mutex_trylock(mut) == PREVIOUSLY_UNLOCKED) return Val_unit;
+  if (st_mutex_trylock(mut) == MUTEX_PREVIOUSLY_UNLOCKED) return Val_unit;
   /* If unsuccessful, block on mutex */
   Begin_root(wrapper)           /* prevent the deallocation of mutex */
     caml_enter_blocking_section();
@@ -835,7 +835,7 @@ CAMLprim value caml_mutex_try_lock(value wrapper)           /* ML */
   st_mutex mut = Mutex_val(wrapper);
   st_retcode retcode;
   retcode = st_mutex_trylock(mut);
-  if (retcode == ALREADY_LOCKED) return Val_false;
+  if (retcode == MUTEX_ALREADY_LOCKED) return Val_false;
   st_check_error(retcode, "Mutex.try_lock");
   return Val_true;
 }
