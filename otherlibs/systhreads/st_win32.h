@@ -163,8 +163,8 @@ Caml_inline void st_thread_yield(st_masterlock * m)
 struct st_mutex_ {
   CRITICAL_SECTION crit;
   int recursive;
-  DWORD owner;
-  uintnat count;
+  DWORD owner;    /* 0 if unlocked */
+  uintnat count;  /* number of times it was locked */
 };
 
 typedef struct st_mutex_ * st_mutex;
@@ -200,7 +200,7 @@ Caml_inline DWORD st_mutex_lock(st_mutex m)
   /* Critical sections are recursive locks, so this will succeed
      if we already own the lock */
   EnterCriticalSection(m->crit);
-  if (m->count == 0) {
+  if (m->owner == 0) {
     /* There was no previous owner.  Now, we are the owner. */
     m->owner = GetCurrentThreadId();
     m->count = 1;
@@ -225,7 +225,7 @@ Caml_inline DWORD st_mutex_trylock(st_mutex m)
     TRACE1("st_mutex_trylock (failure)", m);
     return MUTEX_ALREADY_LOCKED;
   }
-  if (m->count == 0) {
+  if (m->owner == 0) {
     /* There was no previous owner.  Now, we are the owner. */
     m->owner = GetCurrentThreadId();
     m->count = 1;
@@ -234,7 +234,7 @@ Caml_inline DWORD st_mutex_trylock(st_mutex m)
     m->count ++;
   }
   else {
-    /* The mutex was already locked.  Return an error. */
+    /* The mutex was already locked by ourselves */
     TRACE1("st_mutex_lock (already locked by self)", m);
     LeaveCriticalSection(m->crit);
     return MUTEX_ALREADY_LOCKED;
@@ -245,14 +245,18 @@ Caml_inline DWORD st_mutex_trylock(st_mutex m)
 
 Caml_inline DWORD st_mutex_unlock(st_mutex m)
 {
-  /* This is a racy access to m->count and m->owner.
-     It seems correct assuming TSO memory. */
-  if (m->count == 0 || m->owner != GetCurrentThreadId()) {
+  /* If the calling thead holds the lock, m->owner is stable and equal
+     to GetCurrentThreadId().
+     Otherwise, the value of m->owner can be 0 (if the mutex is unlocked)
+     or some other thread ID (if the mutex is held by another thread). */
+  /* NOTE: this is a racy read; should it use one of the Interlocked*
+     functions? */
+  if (m->owner != GetCurrentThreadId()) {
     TRACE1("st_mutex_unlock (error)", m);
     return MUTEX_NOT_OWNED;
   }
   TRACE1("st_mutex_unlock", m);
-  m->count--;
+  if (--m->count == 0) m->owner = 0;
   LeaveCriticalSection(m->crit);
   return 0;
 }
@@ -336,7 +340,8 @@ static DWORD st_condvar_wait(st_condvar c, st_mutex m)
 {
   HANDLE ev;
   struct st_wait_list wait;
-
+  DWORD rc;
+  
   TRACE1("st_condvar_wait", c);
   /* Recover (or create) the event associated with the calling thread */
   ev = (HANDLE) TlsGetValue(st_thread_sem_key);
@@ -348,13 +353,19 @@ static DWORD st_condvar_wait(st_condvar c, st_mutex m)
     if (ev == NULL) return GetLastError();
     TlsSetValue(st_thread_sem_key, (void *) ev);
   }
-  EnterCriticalSection(&c->lock);
+  /* Check that we can unlock the mutex */
+  if (m->owner != GetCurrentThreadId()) {
+    TRACE1("st_condvar_wait: error: mutex not held", m);
+    return MUTEX_NOT_OWNED;
+  }
   /* Insert the current thread in the waiting list (atomically) */
+  EnterCriticalSection(&c->lock);
   wait.event = ev;
   wait.next = c->waiters;
   c->waiters = &wait;
   LeaveCriticalSection(&c->lock);
   /* Release the mutex m */
+  if (--m->count == 0) m->owner = 0;
   LeaveCriticalSection(m);
   /* Wait for our event to be signaled.  There is no risk of lost
      wakeup, since we inserted ourselves on the waiting list of c
@@ -364,7 +375,8 @@ static DWORD st_condvar_wait(st_condvar c, st_mutex m)
     return GetLastError();
   /* Reacquire the mutex m */
   TRACE1("st_condvar_wait: restarted, acquiring mutex", m);
-  EnterCriticalSection(m);
+  rc = st_mutex_lock(m);
+  if (rc != 0) return rc;
   TRACE1("st_condvar_wait: acquired mutex", m);
   return 0;
 }
