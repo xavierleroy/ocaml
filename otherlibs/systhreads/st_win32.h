@@ -239,7 +239,7 @@ Caml_inline DWORD st_mutex_trylock(st_mutex m)
   }
   else {
     /* The mutex was already locked by ourselves.
-       Cancel the EnterCriticalSection above and return "already locked". */
+       Cancel the TryEnterCriticalSection above and return "already locked". */
     TRACE1("st_mutex_trylock (already locked by self)", m);
     LeaveCriticalSection(&m->crit);
     return MUTEX_ALREADY_LOCKED;
