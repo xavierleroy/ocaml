@@ -175,6 +175,7 @@ static DWORD st_mutex_create(st_mutex * res, int recursive)
   if (m == NULL) return ERROR_NOT_ENOUGH_MEMORY;
   InitializeCriticalSection(&m->crit);
   m->recursive = recursive;
+  m->owner = 0;
   m->count = 0;
   *res = m;
   return 0;
@@ -209,7 +210,8 @@ Caml_inline DWORD st_mutex_lock(st_mutex m)
     m->count ++;
   }
   else {
-    /* The mutex was already locked.  Return an error. */
+    /* The mutex was already locked by ourselves.
+       Cancel the EnterCriticalSection above and return an error. */
     TRACE1("st_mutex_lock (deadlock)", m);
     LeaveCriticalSection(&m->crit);
     return MUTEX_DEADLOCK;
@@ -221,7 +223,7 @@ Caml_inline DWORD st_mutex_lock(st_mutex m)
 Caml_inline DWORD st_mutex_trylock(st_mutex m)
 {
   TRACE1("st_mutex_trylock", m);
-  if (! TryEnterCriticalSection(m)) {
+  if (! TryEnterCriticalSection(&m->crit)) {
     TRACE1("st_mutex_trylock (failure)", m);
     return MUTEX_ALREADY_LOCKED;
   }
@@ -234,12 +236,13 @@ Caml_inline DWORD st_mutex_trylock(st_mutex m)
     m->count ++;
   }
   else {
-    /* The mutex was already locked by ourselves */
-    TRACE1("st_mutex_lock (already locked by self)", m);
+    /* The mutex was already locked by ourselves.
+       Cancel the EnterCriticalSection above and return "already locked". */
+    TRACE1("st_mutex_trylock (already locked by self)", m);
     LeaveCriticalSection(&m->crit);
     return MUTEX_ALREADY_LOCKED;
   }
-  TRACE1("st_mutex_lock (done)", m);
+  TRACE1("st_mutex_trylock (done)", m);
   return MUTEX_PREVIOUSLY_UNLOCKED;
 }
 
@@ -248,8 +251,10 @@ Caml_inline DWORD st_mutex_unlock(st_mutex m)
   /* If the calling thead holds the lock, m->owner is stable and equal
      to GetCurrentThreadId().
      Otherwise, the value of m->owner can be 0 (if the mutex is unlocked)
-     or some other thread ID (if the mutex is held by another thread). */
-  /* NOTE: this is a racy read; should it use one of the Interlocked*
+     or some other thread ID (if the mutex is held by another thread),
+     and oscillate between these values, but is never equal to
+     GetCurrentThreadId(). */
+  /* TODO: this is a racy read; should it use one of the Interlocked*
      functions? */
   if (m->owner != GetCurrentThreadId()) {
     TRACE1("st_mutex_unlock (error)", m);
@@ -364,7 +369,8 @@ static DWORD st_condvar_wait(st_condvar c, st_mutex m)
   wait.next = c->waiters;
   c->waiters = &wait;
   LeaveCriticalSection(&c->lock);
-  /* Release the mutex m */
+  /* Release the mutex m (like st_mutex_unlock does, minus the error checking,
+     which we've already done above). */
   if (--m->count == 0) m->owner = 0;
   LeaveCriticalSection(&m->crit);
   /* Wait for our event to be signaled.  There is no risk of lost
