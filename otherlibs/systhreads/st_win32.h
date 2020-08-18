@@ -163,8 +163,8 @@ Caml_inline void st_thread_yield(st_masterlock * m)
 struct st_mutex_ {
   CRITICAL_SECTION crit;
   int recursive;
-  DWORD owner;    /* 0 if unlocked */
-  uintnat count;  /* number of times it was locked */
+  volatile LONG owner;    /* 0 if unlocked */
+  uintnat count;          /* number of times it was locked */
 };
 
 typedef struct st_mutex_ * st_mutex;
@@ -197,13 +197,14 @@ static DWORD st_mutex_destroy(st_mutex m)
 
 Caml_inline DWORD st_mutex_lock(st_mutex m)
 {
+  LONG prev;
   TRACE1("st_mutex_lock", m);
   /* Critical sections are recursive locks, so this will succeed
      if we already own the lock */
   EnterCriticalSection(&m->crit);
-  if (m->owner == 0) {
+  prev = InterlockedExchange(&m->owner, GetCurrentThreadId());
+  if (prev == 0) {
     /* There was no previous owner.  Now, we are the owner. */
-    m->owner = GetCurrentThreadId();
     m->count = 1;
   }
   else if (m->recursive) {
@@ -222,14 +223,15 @@ Caml_inline DWORD st_mutex_lock(st_mutex m)
 
 Caml_inline DWORD st_mutex_trylock(st_mutex m)
 {
+  LONG prev;
   TRACE1("st_mutex_trylock", m);
   if (! TryEnterCriticalSection(&m->crit)) {
     TRACE1("st_mutex_trylock (failure)", m);
     return MUTEX_ALREADY_LOCKED;
   }
-  if (m->owner == 0) {
+  prev = InterlockedExchange(&m->owner, GetCurrentThreadId());
+  if (prev == 0) {
     /* There was no previous owner.  Now, we are the owner. */
-    m->owner = GetCurrentThreadId();
     m->count = 1;
   }
   else if (m->recursive) {
@@ -248,15 +250,15 @@ Caml_inline DWORD st_mutex_trylock(st_mutex m)
 
 Caml_inline DWORD st_mutex_unlock(st_mutex m)
 {
+  LONG prev;
   /* If the calling thead holds the lock, m->owner is stable and equal
      to GetCurrentThreadId().
      Otherwise, the value of m->owner can be 0 (if the mutex is unlocked)
      or some other thread ID (if the mutex is held by another thread),
      and oscillate between these values, but is never equal to
      GetCurrentThreadId(). */
-  /* TODO: this is a racy read; should it use one of the Interlocked*
-     functions? */
-  if (m->owner != GetCurrentThreadId()) {
+  prev = InterlockedCompareExchange(&m->owner, 0, 0); /* atomic read */
+  if (prev != GetCurrentThreadId()) {
     TRACE1("st_mutex_unlock (error)", m);
     return MUTEX_NOT_OWNED;
   }
