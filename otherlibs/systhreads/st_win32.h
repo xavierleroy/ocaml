@@ -173,7 +173,7 @@ static DWORD st_mutex_create(st_mutex * res, int recursive)
 {
   st_mutex m = caml_stat_alloc_noexc(sizeof(struct st_mutex_));
   if (m == NULL) return ERROR_NOT_ENOUGH_MEMORY;
-  InitializeCriticalSection(m->crit);
+  InitializeCriticalSection(&m->crit);
   m->recursive = recursive;
   m->count = 0;
   *res = m;
@@ -182,7 +182,7 @@ static DWORD st_mutex_create(st_mutex * res, int recursive)
 
 static DWORD st_mutex_destroy(st_mutex m)
 {
-  DeleteCriticalSection(m->crit);
+  DeleteCriticalSection(&m->crit);
   caml_stat_free(m);
   return 0;
 }
@@ -199,7 +199,7 @@ Caml_inline DWORD st_mutex_lock(st_mutex m)
   TRACE1("st_mutex_lock", m);
   /* Critical sections are recursive locks, so this will succeed
      if we already own the lock */
-  EnterCriticalSection(m->crit);
+  EnterCriticalSection(&m->crit);
   if (m->owner == 0) {
     /* There was no previous owner.  Now, we are the owner. */
     m->owner = GetCurrentThreadId();
@@ -211,7 +211,7 @@ Caml_inline DWORD st_mutex_lock(st_mutex m)
   else {
     /* The mutex was already locked.  Return an error. */
     TRACE1("st_mutex_lock (deadlock)", m);
-    LeaveCriticalSection(m->crit);
+    LeaveCriticalSection(&m->crit);
     return MUTEX_DEADLOCK;
   }
   TRACE1("st_mutex_lock (done)", m);
@@ -236,7 +236,7 @@ Caml_inline DWORD st_mutex_trylock(st_mutex m)
   else {
     /* The mutex was already locked by ourselves */
     TRACE1("st_mutex_lock (already locked by self)", m);
-    LeaveCriticalSection(m->crit);
+    LeaveCriticalSection(&m->crit);
     return MUTEX_ALREADY_LOCKED;
   }
   TRACE1("st_mutex_lock (done)", m);
@@ -257,7 +257,7 @@ Caml_inline DWORD st_mutex_unlock(st_mutex m)
   }
   TRACE1("st_mutex_unlock", m);
   if (--m->count == 0) m->owner = 0;
-  LeaveCriticalSection(m->crit);
+  LeaveCriticalSection(&m->crit);
   return 0;
 }
 
@@ -366,7 +366,7 @@ static DWORD st_condvar_wait(st_condvar c, st_mutex m)
   LeaveCriticalSection(&c->lock);
   /* Release the mutex m */
   if (--m->count == 0) m->owner = 0;
-  LeaveCriticalSection(m);
+  LeaveCriticalSection(&m->crit);
   /* Wait for our event to be signaled.  There is no risk of lost
      wakeup, since we inserted ourselves on the waiting list of c
      before releasing m */
@@ -374,10 +374,10 @@ static DWORD st_condvar_wait(st_condvar c, st_mutex m)
   if (WaitForSingleObject(ev, INFINITE) == WAIT_FAILED)
     return GetLastError();
   /* Reacquire the mutex m */
-  TRACE1("st_condvar_wait: restarted, acquiring mutex", m);
+  TRACE1("st_condvar_wait: restarted, acquiring mutex", c);
   rc = st_mutex_lock(m);
   if (rc != 0) return rc;
-  TRACE1("st_condvar_wait: acquired mutex", m);
+  TRACE1("st_condvar_wait: acquired mutex", c);
   return 0;
 }
 
