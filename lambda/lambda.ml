@@ -965,10 +965,20 @@ let function_is_curried func =
   | Curried -> true
   | Tupled -> false
 
+let max_arguments_for_native_tailcalls = ref 127
+(* 127 is the maximal number of parameters supported in C-- *)
+(* Each code generator has its own limit on the number of parameters,
+   given by [Proc.max_arguments_for_tailcalls].
+   To avoid a dependency on [Proc], we export an API to communicate
+   the actual limit at ocamlopt start-up time. *)
+let set_num_parameter_regs n =
+  max_arguments_for_native_tailcalls := Int.min n 127
+
 let max_arity () =
-  if !Clflags.native_code then 126 else max_int
-  (* 126 = 127 (the maximal number of parameters supported in C--)
-           - 1 (the hidden parameter containing the environment) *)
+  if !Clflags.native_code
+  then !max_arguments_for_native_tailcalls - 1
+         (* -1 for the hidden argument containing the environment *)
+  else max_int
 
 let reset () =
   raise_count := 0

@@ -431,8 +431,15 @@ val function_is_curried : lfunction -> bool
 val max_arity : unit -> int
   (** Maximal number of parameters for a function, or in other words,
       maximal length of the [params] list of a [lfunction] record.
-      This is unlimited ([max_int]) for bytecode, but limited
-      (currently to 126) for native code. *)
+      This is unlimited ([max_int]) for bytecode.  In native code,
+      there is a fixed limit of 126 coming from the in-memory representation
+      of closures, and an architecture-specific limit corresponding
+      to the number of registers available for parameter passing
+      (typically between 8 and 16) minus one. *)
+
+val set_num_parameter_regs: int -> unit
+  (** Set the number of registers available for parameter passing.
+      This affects the result of [max_arity]. *)
 
 (***********************)
 (* For static failures *)
