@@ -127,11 +127,21 @@ module State : sig
   (** These functions are the same as the basic functions, except that they
       use (and update) the given PRNG state instead of the default one.
   *)
-end
 
+  val split : t -> t
+  (** Draw a fresh PRNG state from the given PRNG state.
+      The new PRNG is statistically independent from the given PRNG.
+      Data can be drawn from both PRNGs, in any order, without risk of
+      correlation.  Both PRNGs can be split later, arbitrarily many times. *)
+
+end
 
 val get_state : unit -> State.t
 (** Return the current state of the generator used by the basic functions. *)
 
 val set_state : State.t -> unit
 (** Set the state of the generator used by the basic functions. *)
+
+val split : unit -> State.t
+(** Draw a fresh PRNG state from the current state of the generator
+    used by the default functions.  See {!Random.State.split}. *)
