@@ -13,6 +13,7 @@
 /*                                                                        */
 /**************************************************************************/
 
+#include <string.h>
 #include "caml/alloc.h"
 #include "caml/bigarray.h"
 #include "caml/mlvalues.h"
@@ -34,7 +35,7 @@ struct LXM_state {
 
 #define LXM_val(v) ((struct LXM_state *) Caml_ba_data_val(v))
 
-static inline uint64_t rotl(const uint64_t x, int k) {
+Caml_inline uint64_t rotl(const uint64_t x, int k) {
   return (x << k) | (x >> (64 - k));
 }
 
@@ -77,17 +78,58 @@ static void caml_lxm_set(value v, uint64_t i1, uint64_t i2,
   st->s = i4;
 }
 
+static void add256(uint64_t x[4], uint64_t y[4])
+{
+  int i;
+  unsigned int carry = 0;
+  for (i = 0; i < 4; i++) {
+    uint64_t t1 = x[i];
+    uint64_t t2 = t1 + y[i];
+    uint64_t t3 = t2 + carry;
+    x[i] = t3;
+    carry = (t2 < t1) + (t3 < t2);
+  }
+}
+
+static void shl256(uint64_t x[4], int amount)
+{
+  while (amount >= 64) {
+    x[3] = x[2]; x[2] = x[1]; x[1] = x[0]; x[0] = 0;
+    amount -= 64;
+  }
+  if (amount == 0) return;
+  x[3] = x[3] << amount | x[2] >> (64 - amount);
+  x[2] = x[2] << amount | x[1] >> (64 - amount);
+  x[1] = x[1] << amount | x[0] >> (64 - amount);
+  x[0] = x[0] << amount;
+}
+
 CAMLprim value caml_lxm_init(value v, value a)
 {
-  const uint64_t mix = 6364136223846793005;
-  /* Multiplier taken from the MMIX LCG, Knoth TAOCP vol 2, 1998 edition */
-  uint64_t d[4] = {0, 0, 0, 0};
+  /* The FNV1-256 offset basis,
+     1000292579580525809070709686206257048370927960
+     14241193945225284501741471925557,
+     as four 64-bit digits, little endian */
+  uint64_t h[4] = { 0x1023b4c8caee0535,
+                    0xc8b1536847b6bbb3,
+                    0x2d98c384c4e576cc,
+                    0xdd268dbcaac55036 };
+  uint64_t t[4];
   mlsize_t i, len;
 
   for (i = 0, len = Wosize_val(a); i < len; i++) {
-    d[i % 4] = d[i % 4] * mix + Long_val(Field(a, i));
+    /* On 32-bit hosts, force sign-extension to 64 bits, so that
+       the results are the same on 32-bit and 64-bit platforms */
+    h[0] ^= (int64_t) Long_val(Field(a, i));
+    /* Multiply by the FNV1-256 prime, 2^168 + 2^8 + 2^6 + 2^5 + 2^1 + 2^0 */
+    memcpy(t, h, sizeof(t));
+    shl256(t, 1-0); add256(h, t);
+    shl256(t, 5-1); add256(h, t);
+    shl256(t, 6-5); add256(h, t);
+    shl256(t, 8-6); add256(h, t);
+    shl256(t, 168-8); add256(h, t);
   }
-  caml_lxm_set(v, d[0], d[1], d[2], d[3]);
+  caml_lxm_set(v, h[0], h[1], h[2], h[3]);
   return Val_unit;
 }
 
