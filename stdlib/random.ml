@@ -42,7 +42,7 @@ module State = struct
     Array1.blit src dst
 
   let copy s =
-    let s' = create() in assign s' s; s
+    let s' = create() in assign s' s; s'
 
   let reinit = init
 
