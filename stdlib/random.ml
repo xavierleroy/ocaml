@@ -30,13 +30,11 @@ module State = struct
   let create () : t =
     Array1.create Int64 C_layout 4
 
-  let mk i1 i2 i3 i4 =
-    let s = create() in
+  let set s i1 i2 i3 i4 =
     Array1.unsafe_set s 0 (Int64.logor i1 1L); (* must be odd *)
     Array1.unsafe_set s 1 i2;
     Array1.unsafe_set s 2 (if i3 <> 0L then i3 else 1L); (* must not be 0 *)
-    Array1.unsafe_set s 3 (if i4 <> 0L then i4 else 2L); (* must not be 0 *)
-    s
+    Array1.unsafe_set s 3 (if i4 <> 0L then i4 else 2L) (* must not be 0 *)
     
   let assign (dst: t) (src: t) =
     Array1.blit src dst
@@ -49,7 +47,7 @@ module State = struct
      we serialize the array as a sequence of bytes, then hash the
      sequence with MD5 (Digest.bytes).  MD5 gives only 128 bits while
      we need 256 bits, so we hash twice with different suffixes. *)
-  let make seed =
+  let reinit s seed =
     let n = Array.length seed in
     let b = Bytes.create (n * 8 + 1) in
     for i = 0 to n-1 do
@@ -59,16 +57,16 @@ module State = struct
     let d1 = Bytes.unsafe_of_string (Digest.bytes b) in
     Bytes.set b (n * 8) '\x02';
     let d2 = Bytes.unsafe_of_string (Digest.bytes b) in
-    mk (Bytes.get_int64_le d1 0)
-       (Bytes.get_int64_le d1 8)
-       (Bytes.get_int64_le d2 0)
-       (Bytes.get_int64_le d2 8)
+    set s (Bytes.get_int64_le d1 0)
+          (Bytes.get_int64_le d1 8)
+          (Bytes.get_int64_le d2 0)
+          (Bytes.get_int64_le d2 8)
+
+  let make seed =
+    let s = create() in reinit s seed; s
 
   let make_self_init () =
     make (random_seed ())
-
-  let reinit s seed =
-    assign s (make seed)
 
   (* Return 30 random bits as an integer 0 <= x < 1073741824 *)
   let bits s =
@@ -162,15 +160,16 @@ module State = struct
   let split s =
     let i1 = bits64 s in let i2 = bits64 s in
     let i3 = bits64 s in let i4 = bits64 s in
-    mk i1 i2 i3 i4
+    let s' = create () in set s' i1 i2 i3 i4; s'
 end
 
-let default =
-  State.mk (-6196874289567705097L)
-           586573249833713189L
-           586573249833713189L
-           (-8591268803865043407L)
-(* This is the state obtained with [make [| 314159265 |]]. *)
+let default = State.create()
+let _ =
+  State.set default (-6196874289567705097L)
+                    586573249833713189L
+                    (-8591268803865043407L)
+                    6388613595849772044L
+(* This is the state obtained with [State.make [| 314159265 |]]. *)
 
 let bits () = State.bits default
 let int bound = State.int default bound
