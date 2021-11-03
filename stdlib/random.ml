@@ -26,25 +26,49 @@ module State = struct
 
   external next: t -> (int64[@unboxed])
       = "caml_lxm_next" "caml_lxm_next_unboxed"
-  external init: t -> int array -> unit = "caml_lxm_init"
-  external init_split: t -> t -> unit = "caml_lxm_init_split"
 
   let create () : t =
     Array1.create Int64 C_layout 4
 
-  let make seed =
-    let s = create() in init s seed; s
-
-  let make_self_init () =
-    make (random_seed ())
-
+  let mk i1 i2 i3 i4 =
+    let s = create() in
+    Array1.unsafe_set s 0 (Int64.logor i1 1L); (* must be odd *)
+    Array1.unsafe_set s 1 i2;
+    Array1.unsafe_set s 2 (if i3 <> 0L then i3 else 1L); (* must not be 0 *)
+    Array1.unsafe_set s 3 (if i4 <> 0L then i4 else 2L); (* must not be 0 *)
+    s
+    
   let assign (dst: t) (src: t) =
     Array1.blit src dst
 
   let copy s =
     let s' = create() in assign s' s; s'
 
-  let reinit = init
+  (* The seed is an array of integers.  It can be just one integer,
+     but it can also be 12 or more bytes.  To hide the difference,
+     we serialize the array as a sequence of bytes, then hash the
+     sequence with MD5 (Digest.bytes).  MD5 gives only 128 bits while
+     we need 256 bits, so we hash twice with different suffixes. *)
+  let make seed =
+    let n = Array.length seed in
+    let b = Bytes.create (n * 8 + 1) in
+    for i = 0 to n-1 do
+      Bytes.set_int64_le b (i * 8) (Int64.of_int seed.(i))
+    done;
+    Bytes.set b (n * 8) '\x01';
+    let d1 = Bytes.unsafe_of_string (Digest.bytes b) in
+    Bytes.set b (n * 8) '\x02';
+    let d2 = Bytes.unsafe_of_string (Digest.bytes b) in
+    mk (Bytes.get_int64_le d1 0)
+       (Bytes.get_int64_le d1 8)
+       (Bytes.get_int64_le d2 0)
+       (Bytes.get_int64_le d2 8)
+
+  let make_self_init () =
+    make (random_seed ())
+
+  let reinit s seed =
+    assign s (make seed)
 
   (* Return 30 random bits as an integer 0 <= x < 1073741824 *)
   let bits s =
@@ -136,21 +160,17 @@ module State = struct
 
   (* Split a new PRNG off the given PRNG *)
   let split s =
-    let s' = create () in init_split s' s; s'
+    let i1 = bits64 s in let i2 = bits64 s in
+    let i3 = bits64 s in let i4 = bits64 s in
+    mk i1 i2 i3 i4
 end
 
 let default =
-  State.make
-    [| 0b001001000011111101101010100010;
-       0b001000010110100011000010001101;
-       0b001100010011000110011000101000;
-       0b101110000000110111000001110011;
-       0b010001001010010000001001001110;
-       0b000010001000101001100111110011;
-       0b000111010000000010000010111011;
-       0b111010100110001110110001001110 |]
-(* These are the first 240 binary digits of the fractional part of pi,
-   as eight 30-bit integers. *)
+  State.mk (-6196874289567705097L)
+           586573249833713189L
+           586573249833713189L
+           (-8591268803865043407L)
+(* This is the state obtained with [make [| 314159265 |]]. *)
 
 let bits () = State.bits default
 let int bound = State.int default bound
