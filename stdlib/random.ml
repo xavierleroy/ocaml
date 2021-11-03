@@ -25,7 +25,7 @@ module State = struct
   type t = (int64, int64_elt, c_layout) Array1.t
 
   external next: t -> (int64[@unboxed])
-      = "caml_lxm_next" "caml_lxm_next_unboxed"
+      = "caml_lxm_next" "caml_lxm_next_unboxed" [@@noalloc]
 
   let create () : t =
     Array1.create Int64 C_layout 4
