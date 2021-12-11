@@ -263,6 +263,10 @@ fi
 $make --warn-undefined-variables install
 rm -rf "$instdir"
 
+for lib in libcamlrun.a libcamlrund.a libasmrun.a libasmrund.a ; do
+  test -f runtime/$lib && tools/check-symbol-names runtime/$lib
+done
+
 cd testsuite
 if test -n "$jobs" && test -x /usr/bin/parallel
 then PARALLEL="$jobs $PARALLEL" $make --warn-undefined-variables parallel
