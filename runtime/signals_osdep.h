@@ -85,6 +85,24 @@
   #define CONTEXT_YOUNG_PTR (context->uc_mcontext.gregs[REG_R15])
   #define CONTEXT_FAULTING_ADDRESS ((char *) info->si_addr)
 
+/****************** AMD64, FreeBSD */
+
+#elif defined(TARGET_amd64) && defined (SYS_freebsd)
+
+ #include <ucontext.h>
+ #define DECLARE_SIGNAL_HANDLER(name) \
+ static void name(int sig, siginfo_t * info, ucontext_t * context)
+
+ #define SET_SIGACT(sigact,name) \
+ sigact.sa_sigaction = (void (*)(int,siginfo_t *,void *)) (name); \
+ sigact.sa_flags = SA_SIGINFO
+
+ #define CONTEXT_PC (context->uc_mcontext.mc_rip)
+ #define CONTEXT_C_ARG_1 (context->uc_mcontext.mc_rdi)
+ #define CONTEXT_SP (context->uc_mcontext.mc_rsp)
+ #define CONTEXT_YOUNG_PTR (context->uc_mcontext.mc_r15)
+ #define CONTEXT_FAULTING_ADDRESS ((char *) info->si_addr)
+
 /****************** AMD64, OpenBSD */
 
 #elif defined(TARGET_amd64) && defined (SYS_openbsd)
