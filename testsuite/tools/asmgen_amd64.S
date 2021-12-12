@@ -77,7 +77,7 @@ CAML_ABSF_MASK:
 
         .comm   young_limit, 8
 
-#if defined(SYS_linux)
+#if defined(SYS_linux) || defined(SYS_freebsd)
     /* Mark stack as non-executable */
         .section .note.GNU-stack,"",%progbits
 #endif

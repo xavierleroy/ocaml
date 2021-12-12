@@ -692,7 +692,7 @@ G(caml_negf_mask):
 G(caml_absf_mask):
         .quad   0x7FFFFFFFFFFFFFFF, 0xFFFFFFFFFFFFFFFF
 
-#if defined(SYS_linux)
-    /* Mark stack as non-executable, PR#4564 */
+#if defined(SYS_linux) || defined(SYS_freebsd)
+    /* Mark stack as non-executable, PR#4564, #10793 */
         .section .note.GNU-stack,"",%progbits
 #endif
