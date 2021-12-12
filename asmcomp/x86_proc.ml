@@ -33,6 +33,9 @@ type system =
   | S_win64
   | S_linux
   | S_mingw64
+  | S_freebsd
+  | S_openbsd
+  | S_netbsd
 
   | S_unknown
 
@@ -50,6 +53,9 @@ let system = match Config.system with
   | "mingw64" -> S_mingw64
   | "win64" -> S_win64
   | "linux" -> S_linux
+  | "freebsd" -> S_freebsd
+  | "openbsd" -> S_openbsd
+  | "netbsd" -> S_netbsd
 
   | _ -> S_unknown
 
