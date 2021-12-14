@@ -37,9 +37,11 @@ $2 ~ /^.refptr\./ { next }
 # windows unicode support
 $2 ~ /^_?win_multi_byte_to_wide_char$/ { next }
 $2 ~ /^_?win_wide_char_to_multi_byte$/ { next }
+# ignore oddly-formed lines (OpenBSD)
+NF < 3 { next }
 # print the rest
 { found=1; print $1 " " $2 " " $3 }
 # fail if there were any results
-END { exit found ? 1 : 0 }
+END { if (found) { exit 1 } else { exit 0 } }
 '
 exit $?
