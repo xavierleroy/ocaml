@@ -186,6 +186,12 @@ val find_in_path_uncap: string list -> string -> string
            to match. *)
 val remove_file: string -> unit
         (* Delete the given file if it exists. Never raise an error. *)
+val make_file_executable: string -> unit
+        (* Change the permissions of the given file, adding an 
+           "execute" (x) permission for each "read" (r) permission.
+           For example, [rw-r-----] becomes [rwx-r-x---].
+           Does nothing if the file is not a regular file.
+           Does nothing under Windows (no "execute" permissions...). *)
 val expand_directory: string -> string -> string
         (* [expand_directory alt file] eventually expands a [+] at the
            beginning of file into [alt] (an alternate root directory) *)

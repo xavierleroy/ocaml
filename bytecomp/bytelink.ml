@@ -314,11 +314,9 @@ let link_bytecode ?final_name tolink exec_name standalone =
     | Link_object(file_name, _) when file_name = exec_name ->
       raise (Error (Wrong_object_name exec_name));
     | _ -> ()) tolink;
-  Misc.remove_file exec_name; (* avoid permission problems, cf PR#8354 *)
-  let outperm = if !Clflags.with_runtime then 0o777 else 0o666 in
   let outchan =
     open_out_gen [Open_wronly; Open_trunc; Open_creat; Open_binary]
-                 outperm exec_name in
+                 0o666 exec_name in
   Misc.try_finally
     ~always:(fun () -> close_out outchan)
     ~exceptionally:(fun () -> remove_file exec_name)
@@ -405,7 +403,12 @@ let link_bytecode ?final_name tolink exec_name standalone =
        end;
        (* The table of contents and the trailer *)
        Bytesections.write_toc_and_trailer outchan;
-    )
+    );
+  if !Clflags.with_runtime then begin
+    (* Add executable permissions to the file *)
+    try Misc.make_file_executable exec_name
+    with Sys_error _ -> ()  (* this is a best effort *)
+  end
 
 (* Output a string as a C array of unsigned ints *)
 

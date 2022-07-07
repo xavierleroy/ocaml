@@ -345,6 +345,34 @@ CAMLprim value caml_sys_rename(value oldname, value newname)
   return Val_unit;
 }
 
+CAMLprim value caml_sys_make_executable(value name)
+{
+#ifdef _WIN32
+  /* No executable permissions on Windows files */
+  return Val_unit;
+#else
+  CAMLparam1(name);
+  struct stat st;
+  char * p;
+  int mode, ret;
+
+  caml_sys_check_path(name);
+  p = caml_stat_strdup_to_os(String_val(name));
+  caml_enter_blocking_section();
+  ret = stat(p, &st);
+  if (ret == 0 && S_ISREG(st.st_mode)) {
+    mode = st.st_mode & 0777;
+    /* Add a "x" permission for each existing "r" permission */
+    mode |= (mode & 0444) >> 2;
+    ret = chmod(p, mode);
+  }
+  caml_leave_blocking_section();
+  caml_stat_free(p);
+  if (ret == -1) caml_sys_error(name);
+  CAMLreturn(Val_unit);
+#endif
+}
+
 CAMLprim value caml_sys_chdir(value dirname)
 {
   CAMLparam1(dirname);

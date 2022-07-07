@@ -281,6 +281,8 @@ let remove_file filename =
   with Sys_error _msg ->
     ()
 
+external make_file_executable: string -> unit = "caml_sys_make_executable"
+
 (* Expand a -I option: if it starts with +, make it relative to the standard
    library directory *)
 
