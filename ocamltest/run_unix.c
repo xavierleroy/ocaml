@@ -161,80 +161,30 @@ static void update_environment(array local_env)
 /*
   This function should return an exitcode that can itself be returned
   to its father through the exit system call.
-  So it returns 0 to report success and 1 to report an error
+  It returns the exit code of the command, if it could be launched,
+  or 127 to report an error.
 
  */
-static int run_command_child(const command_settings *settings)
+static int run_command_child(const command_settings *settings,
+                             int stdin_fd, int stdout_fd, int stderr_fd)
 {
-  int stdin_fd = -1, stdout_fd = -1, stderr_fd = -1; /* -1 = no redir */
-  int inputFlags = O_RDONLY;
-  int outputFlags =
-    O_CREAT | O_WRONLY | (settings->append ? O_APPEND : O_TRUNC);
-  int inputMode = 0400, outputMode = 0666;
+  if (setpgid(0, 0) == -1) return 127;
 
-  if (setpgid(0, 0) == -1)
-  {
-    child_error("setpgid");
+  if (stdin_fd != -1) {
+    if (dup2(stdin_fd, STDIN_FILENO) == -1) return 127;
   }
-
-  if (is_defined(settings->stdin_filename))
-  {
-    stdin_fd = open(settings->stdin_filename, inputFlags, inputMode);
-    if (stdin_fd < 0)
-    {
-      open_error(settings->stdin_filename);
-      goto child_failed;
-    }
-    if (dup2(stdin_fd, STDIN_FILENO) == -1)
-    {
-      child_error("dup2 for stdin");
-    }
+  if (stdout_fd != -1) {
+    if (dup2(stdout_fd, STDOUT_FILENO) == -1) return 127;
   }
-
-  if (is_defined(settings->stdout_filename))
-  {
-    stdout_fd = open(settings->stdout_filename, outputFlags, outputMode);
-    if (stdout_fd < 0) {
-      open_error(settings->stdout_filename);
-      goto child_failed;
-    }
-    if (dup2(stdout_fd, STDOUT_FILENO) == -1)
-    {
-      child_error("dup2 for stdout");
-    }
-  }
-
-  if (is_defined(settings->stderr_filename))
-  {
-    if (stdout_fd != -1)
-    {
-      if (paths_same_file(
-        settings, settings->stdout_filename,settings->stderr_filename))
-        stderr_fd = stdout_fd;
-    }
-    if (stderr_fd == -1)
-    {
-      stderr_fd = open(settings->stderr_filename, outputFlags, outputMode);
-      if (stderr_fd == -1)
-      {
-        open_error(settings->stderr_filename);
-        goto child_failed;
-      }
-    }
-    if (dup2(stderr_fd, STDERR_FILENO) == -1)
-    {
-      child_error("dup2 for stderr");
-    }
+  if (stderr_fd != -1) {
+    if (dup2(stderr_fd, STDERR_FILENO) == -1) return 127;
   }
 
   update_environment(settings->envp);
 
   execvp(settings->program, settings->argv);
 
-  myperror("Cannot execute %s", settings->program);
-
-child_failed:
-  return 1;
+  return 127;
 }
 
 /* Handles the termination of a process. Arguments:
@@ -339,19 +289,82 @@ static int run_command_parent(const command_settings *settings, pid_t child_pid)
   return child_code;
 }
 
+static void close_redirections(int stdin_fd, int stdout_fd, int stderr_fd)
+{
+  if (stdin_fd != -1) close(stdin_fd);
+  if (stdout_fd != -1) close(stdout_fd);
+  if (stderr_fd != -1 && stderr_fd != stdout_fd) close(stderr_fd);
+}
+
+#ifndef O_CLOEXEC
+#define O_CLOEXEC 0
+#endif
+
 int run_command(const command_settings *settings)
 {
+  /* Prepare the redirections */
+
+  int stdin_fd = -1, stdout_fd = -1, stderr_fd = -1; /* -1 = no redir */
+  int inputFlags = O_RDONLY | O_CLOEXEC;
+  int outputFlags =
+    O_CREAT | O_WRONLY | O_CLOEXEC | (settings->append ? O_APPEND : O_TRUNC);
+  int inputMode = 0400, outputMode = 0666;
+
+  if (is_defined(settings->stdin_filename))
+  {
+    stdin_fd = open(settings->stdin_filename, inputFlags, inputMode);
+    if (stdin_fd < 0)
+    {
+      open_error(settings->stdin_filename);
+      goto error;
+    }
+  }
+
+  if (is_defined(settings->stdout_filename))
+  {
+    stdout_fd = open(settings->stdout_filename, outputFlags, outputMode);
+    if (stdout_fd < 0) {
+      open_error(settings->stdout_filename);
+      goto error;
+    }
+  }
+
+  if (is_defined(settings->stderr_filename))
+  {
+    if (stdout_fd != -1 &&
+        paths_same_file(
+           settings, settings->stdout_filename,settings->stderr_filename)) {
+      stderr_fd = stdout_fd;
+    } else {
+      stderr_fd = open(settings->stderr_filename, outputFlags, outputMode);
+      if (stderr_fd == -1)
+      {
+        open_error(settings->stderr_filename);
+        goto error;
+      }
+    }
+  }
+
+  /* Fork and exec */
+
   pid_t child_pid = fork();
 
   switch (child_pid)
   {
     case -1:
       myperror("fork");
-      return -1;
+      goto error;
     case 0: /* child process */
       caml_atfork_hook();
-      exit( run_command_child(settings) );
-    default:
-      return run_command_parent(settings, child_pid);
+      _exit( run_command_child(settings, stdin_fd, stdout_fd, stderr_fd) );
+    default: /* parent process */
+      close_redirections(stdin_fd, stdout_fd, stderr_fd);
+      int retcode = run_command_parent(settings, child_pid);
+      if (retcode == 127) myperror("Cannot execute %s", settings->program);
+      return retcode;
   }
+
+ error:
+  close_redirections(stdin_fd, stdout_fd, stderr_fd);
+  return -1;
 }
