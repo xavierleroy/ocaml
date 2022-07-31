@@ -17,6 +17,8 @@
 
 #define CAML_INTERNALS
 
+#include <caml/s.h>
+
 #include <stdio.h>
 #include <limits.h>
 #include <stdlib.h>
@@ -28,6 +30,9 @@
 #include <errno.h>
 #include <stdarg.h>
 #include <signal.h>
+#ifdef HAS_POSIX_SPAWN
+#include <spawn.h>
+#endif
 
 #include "run.h"
 #include "run_common.h"
@@ -133,6 +138,115 @@ static int paths_same_file(
   return same_file;
 }
 
+#ifdef HAS_POSIX_SPAWN
+
+static size_t array_length(array arr)
+{
+  size_t len;
+  for (len = 0; arr[len] != 0; len++) /*skip*/;
+  return len;
+}
+
+static int same_variable(char * p, char * q)
+{
+  while (1) {
+    char c = *p++, d = *q++;
+    if (c == '=') c = 0;
+    if (d == '=') d = 0;
+    if (c != d) return 0;
+    if (c == 0) return 1;
+  }
+}
+
+extern char ** environ;
+
+static array make_environment(array delta)
+{
+  array current = environ;
+  size_t delta_len = array_length(delta);
+  size_t current_len = array_length(current);
+  array result = calloc(current_len + delta_len + 1, sizeof(char *));
+  size_t idx = 0;
+  if (result == NULL) return NULL;
+  /* Copy variables that are assigned in delta */
+  for (size_t i = 0; i < delta_len; i++) {
+    char * var = delta[i];
+    char * eqs = strchr(var, '=');
+    if (eqs == NULL) continue;  /* deleted variable */
+    result[idx++] = var;
+  }
+  /* Copy original variables that are neither assigned nor removed in delta */
+  for (size_t i = 0; i < current_len; i++) {
+    char * var = current[i];
+    for (size_t j = 0; j < delta_len; j++) {
+      if (same_variable(var, delta[j])) goto next;
+    }
+    result[idx++] = var;
+  next:
+    /* skip */;
+  }
+  result[idx] = NULL;
+  return result;
+}
+
+static int run_command_spawn(const command_settings *settings,
+                             int stdin_fd, int stdout_fd, int stderr_fd,
+                             /* out */ pid_t * pid)
+{
+  int retcode = -1;
+  posix_spawn_file_actions_t fa;
+  posix_spawnattr_t attr;
+  array env;
+
+  if (posix_spawn_file_actions_init(&fa) == -1) {
+    myperror("posix_spawn_file_actions_init");
+    goto finish0;
+  }
+  if (stdin_fd != -1) {
+    if (posix_spawn_file_actions_adddup2(&fa, stdin_fd, STDIN_FILENO) == -1) {
+      myperror("posix_spawn_file_actions_adddup2 (0)");
+      goto finish1;
+    }
+  }
+  if (stdout_fd != -1) {
+    if (posix_spawn_file_actions_adddup2(&fa, stdout_fd, STDOUT_FILENO) == -1) {
+      myperror("posix_spawn_file_actions_adddup2 (1)");
+      goto finish1;
+    }
+  }
+  if (stderr_fd != -1) {
+    if (posix_spawn_file_actions_adddup2(&fa, stderr_fd, STDERR_FILENO) == -1) {
+      myperror("posix_spawn_file_actions_adddup2 (2)");
+      goto finish1;
+    }
+  }
+  if (posix_spawnattr_init(&attr) == -1) {
+    myperror("posix_spawnattr_init");
+    goto finish1;
+  }
+  if (posix_spawnattr_setflags(&attr, POSIX_SPAWN_SETPGROUP) == -1) {
+    myperror("posix_spawnattr_setflags");
+    goto finish2;
+  }
+  env = make_environment(settings->envp);
+  if (env == NULL) goto finish2;
+
+  retcode = posix_spawnp(pid, settings->program, &fa, &attr,
+                         settings->argv, env);
+  if (retcode == -1) {
+    myperror("Cannot execute %s", settings->program);
+  }
+  free(env);
+ finish2:
+  posix_spawnattr_destroy(&attr);
+ finish1:
+  posix_spawn_file_actions_destroy(&fa);
+finish0:
+  return retcode;
+}
+
+#else
+
 static void update_environment(array local_env)
 {
   array envp;
@@ -186,6 +300,8 @@ static int run_command_child(const command_settings *settings,
 
   return 127;
 }
+
+#endif
 
 /* Handles the termination of a process. Arguments:
  * The pid of the terminated process
@@ -302,6 +418,8 @@ static void close_redirections(int stdin_fd, int stdout_fd, int stderr_fd)
 
 int run_command(const command_settings *settings)
 {
+  pid_t child_pid;
+
   /* Prepare the redirections */
 
   int stdin_fd = -1, stdout_fd = -1, stderr_fd = -1; /* -1 = no redir */
@@ -345,10 +463,17 @@ int run_command(const command_settings *settings)
     }
   }
 
-  /* Fork and exec */
+#ifdef HAS_POSIX_SPAWN
 
-  pid_t child_pid = fork();
+  /* Spawn the process */
+  if (run_command_spawn(settings, stdin_fd, stdout_fd, stderr_fd,
+                        &child_pid) == -1)
+    goto error;
 
+#else
+
+  /* Fork then exec the process */
+  child_pid = fork();
   switch (child_pid)
   {
     case -1:
@@ -358,11 +483,16 @@ int run_command(const command_settings *settings)
       caml_atfork_hook();
       _exit( run_command_child(settings, stdin_fd, stdout_fd, stderr_fd) );
     default: /* parent process */
-      close_redirections(stdin_fd, stdout_fd, stderr_fd);
-      int retcode = run_command_parent(settings, child_pid);
-      if (retcode == 127) myperror("Cannot execute %s", settings->program);
-      return retcode;
+      break;
   }
+
+#endif
+
+  /* Wait for process termination */
+  close_redirections(stdin_fd, stdout_fd, stderr_fd);
+  int retcode = run_command_parent(settings, child_pid);
+  if (retcode == 127) myperror("Cannot execute %s", settings->program);
+  return retcode;
 
  error:
   close_redirections(stdin_fd, stdout_fd, stderr_fd);
