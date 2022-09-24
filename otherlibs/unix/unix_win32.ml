@@ -275,21 +275,32 @@ type open_flag =
 
 type file_perm = int
 
+type bigbytes =
+  (char, Bigarray.int8_unsigned_elt, Bigarray.c_layout) Bigarray.Array1.t
+
 external openfile : string -> open_flag list -> file_perm -> file_descr
            = "caml_unix_open"
 external close : file_descr -> unit = "caml_unix_close"
 external fsync : file_descr -> unit = "caml_unix_fsync"
 external unsafe_read : file_descr -> bytes -> int -> int -> int
                      = "caml_unix_read"
+external unsafe_bigread : file_descr -> bigbytes -> int -> int -> int
+   = "caml_unix_bigread"
 external unsafe_write : file_descr -> bytes -> int -> int -> int
                       = "caml_unix_write"
 external unsafe_single_write : file_descr -> bytes -> int -> int -> int
                       = "caml_unix_single_write"
+external unsafe_single_bigwrite : file_descr -> bigbytes -> int -> int -> int
+   = "caml_unix_single_bigwrite"
 
 let read fd buf ofs len =
   if ofs < 0 || len < 0 || ofs > Bytes.length buf - len
   then invalid_arg "Unix.read"
   else unsafe_read fd buf ofs len
+let bigread fd buf ofs len =
+  if ofs < 0 || len < 0 || ofs > Bigarray.Array1.dim buf - len
+  then invalid_arg "Unix.bigread"
+  else unsafe_bigread fd buf ofs len
 let write fd buf ofs len =
   if ofs < 0 || len < 0 || ofs > Bytes.length buf - len
   then invalid_arg "Unix.write"
@@ -298,6 +309,10 @@ let single_write fd buf ofs len =
   if ofs < 0 || len < 0 || ofs > Bytes.length buf - len
   then invalid_arg "Unix.single_write"
   else unsafe_single_write fd buf ofs len
+let single_bigwrite fd buf ofs len =
+  if ofs < 0 || len < 0 || ofs > Bigarray.Array1.dim buf - len
+  then invalid_arg "Unix.single_bigwrite"
+  else unsafe_single_bigwrite fd buf ofs len
 
 let write_substring fd buf ofs len =
   write fd (Bytes.unsafe_of_string buf) ofs len

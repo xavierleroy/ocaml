@@ -15,9 +15,11 @@
 
 #include <errno.h>
 #include <string.h>
+#include <limits.h>
 #include <caml/mlvalues.h>
 #include <caml/memory.h>
 #include <caml/signals.h>
+#include <caml/bigarray.h>
 #include "unixsupport.h"
 
 CAMLprim value caml_unix_write(value fd, value buf, value vofs, value vlen)
@@ -97,4 +99,40 @@ CAMLprim value caml_unix_single_write(value fd, value buf, value vofs,
     written = numwritten;
   }
   CAMLreturn(Val_long(written));
+}
+
+CAMLprim value caml_unix_single_bigwrite(value fd, value buf, value vofs,
+                                         value vlen)
+{
+  CAMLparam1(buf);
+  char * src;
+  intnat len, numwritten;
+  DWORD err = 0;
+
+  src = (char *) Caml_ba_data_val(buf) + Long_val(vofs);
+  len = Long_val(vlen);
+  if (Descr_kind_val(fd) == KIND_SOCKET) {
+    int ret, towrite;
+    SOCKET s = Socket_val(fd);
+    towrite = len > INT_MAX ? INT_MAX : len;
+    caml_enter_blocking_section();
+    ret = send(s, src, towrite, 0);
+    if (ret == SOCKET_ERROR) err = WSAGetLastError();
+    caml_leave_blocking_section();
+    numwritten = ret;
+  } else {
+    DWORD towrite, numwr;
+    HANDLE h = Handle_val(fd);
+    towrite = len > 0xFFFFFFFFU ? 0xFFFFFFFFU : len;
+    caml_enter_blocking_section();
+    if (! WriteFile(h, src, towrite, &numwr, NULL))
+      err = GetLastError();
+    caml_leave_blocking_section();
+    numwritten = numwr;
+  }
+  if (err) {
+    caml_win32_maperr(err);
+    caml_uerror("single_bigwrite", Nothing);
+  }
+  CAMLreturn(Val_long(numwritten));
 }

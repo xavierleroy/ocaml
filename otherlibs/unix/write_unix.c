@@ -18,6 +18,7 @@
 #include <caml/mlvalues.h>
 #include <caml/memory.h>
 #include <caml/signals.h>
+#include <caml/bigarray.h>
 #include "unixsupport.h"
 
 #ifndef EAGAIN
@@ -82,4 +83,20 @@ CAMLprim value caml_unix_single_write(value fd, value buf, value vofs,
     if (ret == -1) caml_uerror("single_write", Nothing);
   }
   CAMLreturn(Val_int(ret));
+}
+
+CAMLprim value caml_unix_single_bigwrite(value fd, value buf, value vofs,
+                                         value vlen)
+{
+  CAMLparam1(buf);
+  char * src;
+  intnat numbytes, ret;
+
+  src = (char *) Caml_ba_data_val(buf) + Long_val(vofs);
+  numbytes = Long_val(vlen);
+  caml_enter_blocking_section();
+  ret = write(Int_val(fd), src, numbytes);
+  caml_leave_blocking_section();
+  if (ret == -1) caml_uerror("single_bigwrite", Nothing);
+  CAMLreturn(Val_long(ret));
 }

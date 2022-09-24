@@ -17,12 +17,13 @@
 #include <caml/mlvalues.h>
 #include <caml/memory.h>
 #include <caml/signals.h>
+#include <caml/bigarray.h>
 #include "unixsupport.h"
 
 CAMLprim value caml_unix_read(value fd, value buf, value ofs, value len)
 {
   CAMLparam1(buf);
-  long numbytes;
+  intnat numbytes;
   int ret;
   char iobuf[UNIX_BUFFER_SIZE];
 
@@ -34,4 +35,19 @@ CAMLprim value caml_unix_read(value fd, value buf, value ofs, value len)
   if (ret == -1) caml_uerror("read", Nothing);
   memmove (&Byte(buf, Long_val(ofs)), iobuf, ret);
   CAMLreturn(Val_int(ret));
+}
+
+CAMLprim value caml_unix_bigread(value fd, value buf, value ofs, value len)
+{
+  CAMLparam1(buf);
+  char * dest;
+  intnat numbytes, ret;
+
+  dest = (char *) Caml_ba_data_val(buf) + Long_val(ofs);
+  numbytes = Long_val(len);
+  caml_enter_blocking_section();
+  ret = read(Int_val(fd), dest, numbytes);
+  caml_leave_blocking_section();
+  if (ret == -1) caml_uerror("bigread", Nothing);
+  CAMLreturn(Val_long(ret));
 }

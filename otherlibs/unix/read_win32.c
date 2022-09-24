@@ -17,6 +17,7 @@
 #include <caml/mlvalues.h>
 #include <caml/memory.h>
 #include <caml/signals.h>
+#include <caml/bigarray.h>
 #include "unixsupport.h"
 
 CAMLprim value caml_unix_read(value fd, value buf, value ofs, value vlen)
@@ -57,4 +58,46 @@ CAMLprim value caml_unix_read(value fd, value buf, value ofs, value vlen)
   }
   memmove (&Byte(buf, Long_val(ofs)), iobuf, numread);
   CAMLreturn(Val_int(numread));
+}
+
+CAMLprim value caml_unix_bigread(value fd, value buf, value ofs, value vlen)
+{
+  CAMLparam1(buf);
+  char * dest;
+  intnat len, numread;
+  DWORD err = 0;
+
+  dest = (char *) Caml_ba_data_val(buf) + Long_val(ofs);
+  len = Long_val(vlen);
+  if (Descr_kind_val(fd) == KIND_SOCKET) {
+    int ret, toread;
+    SOCKET s = Socket_val(fd);
+    toread = len > INT_MAX ? INT_MAX : len;
+    caml_enter_blocking_section();
+    ret = recv(s, dest, toread, 0);
+    if (ret == SOCKET_ERROR) err = WSAGetLastError();
+    caml_leave_blocking_section();
+    numread = ret;
+  } else {
+    DWORD toread, numrd;
+    HANDLE h = Handle_val(fd);
+    toread = len > 0xFFFFFFFFU ? 0xFFFFFFFFU : len;
+    caml_enter_blocking_section();
+    if (! ReadFile(h, dest, toread, &numrd, NULL))
+      err = GetLastError();
+    caml_leave_blocking_section();
+    numread = numrd;
+  }
+  if (err) {
+    if (err == ERROR_BROKEN_PIPE) {
+      // The write handle for an anonymous pipe has been closed. We match the
+      // Unix behavior, and treat this as a zero-read instead of a Unix_error.
+      err = 0;
+      numread = 0;
+    } else {
+      caml_win32_maperr(err);
+      caml_uerror("bigread", Nothing);
+    }
+  }
+  CAMLreturn(Val_long(numread));
 }

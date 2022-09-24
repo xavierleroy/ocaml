@@ -360,19 +360,30 @@ val fsync : file_descr -> unit
 val read : file_descr -> bytes -> int -> int -> int
 (** [read fd buf pos len] reads [len] bytes from descriptor [fd],
     storing them in byte sequence [buf], starting at position [pos] in
-    [buf]. Return the number of bytes actually read. *)
+    [buf].  At most 65536 bytes will be read.
+    Return the number of bytes actually read. *)
+
+type bigbytes =
+  (char, Bigarray.int8_unsigned_elt, Bigarray.c_layout) Bigarray.Array1.t
+
+val bigread : file_descr -> bigbytes -> int -> int -> int
+(** Same as {!read}, but the bytes read are stored in a big array,
+    and more than 65536 bytes can be read if they are available. *)
 
 val write : file_descr -> bytes -> int -> int -> int
 (** [write fd buf pos len] writes [len] bytes to descriptor [fd],
     taking them from byte sequence [buf], starting at position [pos]
     in [buff]. Return the number of bytes actually written.  [write]
     repeats the writing operation until all bytes have been written or
-    an error occurs.  *)
+    an error occurs.  Moreover, if [len] is greater than 65536,
+    several write system calls will be issued, each writing at most 65536
+    bytes. *)
 
 val single_write : file_descr -> bytes -> int -> int -> int
 (** Same as {!write}, but attempts to write only once.
    Thus, if an error occurs, [single_write] guarantees that no data
-   has been written. *)
+   has been written. Moreover, at most 65536 bytes of data are passed
+   to the write system call.  *)
 
 val write_substring : file_descr -> string -> int -> int -> int
 (** Same as {!write}, but take the data from a string instead of a byte
@@ -385,9 +396,16 @@ val single_write_substring :
     a byte sequence.
     @since 4.02.0 *)
 
+val single_bigwrite : file_descr -> bigbytes -> int -> int -> int
+(** Same as {!single_write}, except that data is taken from a big array,
+    and the whole data is passed to the write system call
+    (no restriction to 65536 bytes).
+
+    On Windows: the number of bytes passed to the system call
+    is limited to 2{^31}-1 when writing to a socket,
+    and to 2{^32}-1 when writing to another kind of file descriptor. *)
+
 (** {1 Interfacing with the standard input/output library} *)
-
-
 
 val in_channel_of_descr : file_descr -> in_channel
 (** Create an input channel reading from the given descriptor.
