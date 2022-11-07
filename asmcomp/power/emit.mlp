@@ -773,7 +773,7 @@ let emit_instr env i =
     | Lop(Istackoffset n) ->
         `	addi	1, 1, {emit_int (-n)}\n`;
         adjust_stack_offset env n
-    | Lop(Iload { memory_chunk; addressing_mode; _ }) ->
+    | Lop(Iload { memory_chunk; addressing_mode; is_atomic = false }) ->
         let loadinstr =
           match memory_chunk with
           | Byte_unsigned -> "lbz"
@@ -788,7 +788,14 @@ let emit_instr env i =
         emit_load_store loadinstr addressing_mode i.arg 0 i.res.(0);
         if memory_chunk = Byte_signed then
           `	extsb	{emit_reg i.res.(0)}, {emit_reg i.res.(0)}\n`
-    | Lop(Istore(chunk, addr, _)) ->
+    | Lop(Iload { memory_chunk; addressing_mode; is_atomic = true }) ->
+        assert (memory_chunk = Word_int || memory_chunk = Word_val);
+        `	sync\n`;
+        emit_load_store lg addressing_mode i.arg 0 i.res.(0);
+        `	cmpw	{emit_reg i.res.(0)}, {emit_reg i.res.(0)}`;
+        `	bne-	$+4\n`;
+        `	isync\n`
+    | Lop(Istore(chunk, addr, assignment)) ->
         let storeinstr =
           match chunk with
           | Byte_unsigned | Byte_signed -> "stb"
@@ -797,6 +804,12 @@ let emit_instr env i =
           | Word_int | Word_val -> stg
           | Single -> "stfs"
           | Double -> "stfd" in
+        (* Non-initializing stores need a memory barrier to follow the
+           Multicore OCaml memory model.  Stores of size other than
+           Word_int and Word_val do not follow the memory model and therefore
+           do not need a barrier *)
+        if assignment && (chunk = Word_int || chunk = Word_val) then
+          `	lwsync\n`;
         emit_load_store storeinstr addr i.arg 1 i.arg.(0)
     | Lop(Ialloc { bytes; dbginfo }) ->
         emit_alloc env i bytes dbginfo false
