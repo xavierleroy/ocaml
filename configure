@@ -14313,12 +14313,6 @@ case $host in #(
     arch=amd64; system=win64 ;; #(
   powerpc64le*-*-linux*) :
     arch=power; model=ppc64le; system=elf ;; #(
-  powerpc*-*-linux*) :
-    arch=power; if $arch64; then :
-  model=ppc64
-else
-  model=ppc
-fi; system=elf ;; #(
   s390x*-*-linux*) :
     arch=s390x; model=z10; system=elf ;; #(
   # expected to match "gnueabihf" as well as "musleabihf"
@@ -14512,10 +14506,6 @@ if test -z "$PARTIALLD"; then :
   case "$arch,$cc_basename,$system,$model" in #(
   amd64,*gcc*,macosx,*) :
     PACKLD_FLAGS=' -arch x86_64' ;; #(
-  power,*gcc*,elf,ppc) :
-    PACKLD_FLAGS=' -m elf32ppclinux' ;; #(
-  power,*gcc*,elf,ppc64) :
-    PACKLD_FLAGS=' -m elf64ppc' ;; #(
   power,*gcc*,elf,ppc64le) :
     PACKLD_FLAGS=' -m elf64lppc' ;; #(
   *) :

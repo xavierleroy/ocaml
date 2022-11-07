@@ -32,18 +32,8 @@
 #endif
 
 #ifdef TARGET_power
-#if defined(MODEL_ppc)
-#define Saved_return_address(sp) *((intnat *)((sp) - 4))
-#define Callback_link(sp) ((struct caml_context *)((sp) + 16))
-#elif defined(MODEL_ppc64)
-#define Saved_return_address(sp) *((intnat *)((sp) + 16))
-#define Callback_link(sp) ((struct caml_context *)((sp) + (48 + 32)))
-#elif defined(MODEL_ppc64le)
 #define Saved_return_address(sp) *((intnat *)((sp) + 16))
 #define Callback_link(sp) ((struct caml_context *)((sp) + (32 + 32)))
-#else
-#error "TARGET_power: wrong MODEL"
-#endif
 #define Already_scanned(sp, retaddr) ((retaddr) & 1)
 #define Mask_already_scanned(retaddr) ((retaddr) & ~1)
 #define Mark_scanned(sp, retaddr) Saved_return_address(sp) = (retaddr) | 1

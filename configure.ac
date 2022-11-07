@@ -1071,8 +1071,6 @@ AS_CASE([$host],
     [arch=amd64; system=win64],
   [[powerpc64le*-*-linux*]],
     [arch=power; model=ppc64le; system=elf],
-  [[powerpc*-*-linux*]],
-    [arch=power; AS_IF([$arch64],[model=ppc64],[model=ppc]); system=elf],
   [[s390x*-*-linux*]],
     [arch=s390x; model=z10; system=elf],
   # expected to match "gnueabihf" as well as "musleabihf"
@@ -1159,8 +1157,6 @@ AC_CHECK_TOOL([DIRECT_LD],[ld])
 AS_IF([test -z "$PARTIALLD"],
   [AS_CASE(["$arch,$cc_basename,$system,$model"],
     [amd64,*gcc*,macosx,*], [PACKLD_FLAGS=' -arch x86_64'],
-    [power,*gcc*,elf,ppc], [PACKLD_FLAGS=' -m elf32ppclinux'],
-    [power,*gcc*,elf,ppc64], [PACKLD_FLAGS=' -m elf64ppc'],
     [power,*gcc*,elf,ppc64le], [PACKLD_FLAGS=' -m elf64lppc'],
     [PACKLD_FLAGS=''])
   # The string for PACKLD must be capable of being concatenated with the
