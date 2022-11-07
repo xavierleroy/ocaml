@@ -39,6 +39,10 @@ Caml_inline void cpu_relax() {
   __asm__ volatile("pause" ::: "memory");
 #elif defined(__aarch64__)
   __asm__ volatile ("yield" ::: "memory");
+#elif defined(__ppc64__)
+  __asm__ volatile ("or 1, 1, 1	# low priority");
+  __asm__ volatile ("or 2, 2, 2	# medium priority");
+  __asm__ volatile ("" ::: "memory");
 #else
   /* Just a compiler barrier */
   __asm__ volatile ("" ::: "memory");
