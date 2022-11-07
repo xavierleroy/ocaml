@@ -1219,8 +1219,6 @@ AS_CASE([$host],
     [arch=amd64; system=win64],
   [[powerpc64le*-*-linux*]],
     [arch=power; model=ppc64le; system=elf],
-  [[powerpc*-*-linux*]],
-    [arch=power; AS_IF([$arch64],[model=ppc64],[model=ppc]); system=elf],
   [[s390x*-*-linux*]],
     [has_native_backend=yes; arch=s390x; model=z10; system=elf],
   # expected to match "gnueabihf" as well as "musleabihf"
@@ -1332,10 +1330,6 @@ AS_IF([test -z "$PARTIALLD"],
   [AS_CASE(["$host,$cc_basename"],
     [x86_64-*-darwin*,*gcc*], [PACKLD_FLAGS=' -arch x86_64'],
     [powerpc64le*-*-linux*,*gcc*], [PACKLD_FLAGS=' -m elf64lppc'],
-    [powerpc*-*-linux*,*gcc*],
-       [AS_IF([$arch64],
-              [PACKLD_FLAGS=' -m elf64ppc'],
-              [PACKLD_FLAGS=' -m elf32ppclinux'])],
     [PACKLD_FLAGS=''])
   # The string for PACKLD must be capable of being concatenated with the
   # output filename. Don't assume that all C compilers understand GNU -ofoo
