@@ -30,6 +30,17 @@
    [First_frame(sp)] is the first stack frame in this stack.
 */
 
+#ifdef TARGET_power
+/* Size of the gc_regs structure, in words.
+   See power.S and power/proc.ml for the indices */
+#define Wosize_gc_regs (23 /* int regs */ + 14 /* caller-save float regs */)
+#define Saved_return_address(sp) *((intnat *)((sp) + 16)
+#define First_frame(sp) (sp)
+#define Already_scanned(sp, retaddr) ((retaddr) & 1)
+#define Mask_already_scanned(retaddr) ((retaddr) & ~1)
+#define Mark_scanned(sp, retaddr) Saved_return_address(sp) = (retaddr) | 1
+#endif
+
 #ifdef TARGET_s390x
 #define Wosize_gc_regs (2 + 9 /* int regs */ + 16 /* float regs */)
 #define Saved_return_address(sp) *((intnat *)((sp) - 8))

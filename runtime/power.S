@@ -13,16 +13,21 @@
 /*                                                                        */
 /**************************************************************************/
 
-#if defined(MODEL_ppc64le)
         .abiversion 2
-#endif
 
 /* Special registers */
+#define SP 1
+#define TOC 2
+#define TMP 11
+#define TMP2 12
 #define START_PRG_ARG 12
 #define START_PRG_DOMAIN_STATE_PTR 7
+#define STACK_ARG_BEGIN 23
+#define STACK_ARG_END 24
 #define C_CALL_FUN 25
 #define C_CALL_TOC 26
 #define C_CALL_RET_ADDR 27
+#define C_CALL_TMP 28
 #define TRAP_PTR 29
 #define DOMAIN_STATE_PTR 30
 #define ALLOC_PTR 31
@@ -38,6 +43,26 @@
 #define TRAP_PREVIOUS_OFFSET 48
 #define CALLBACK_LINK_SIZE 32
 #define CALLBACK_LINK_OFFSET 32
+
+/* struct stack_info */
+#define Stack_sp(reg)           0(reg)
+#define Stack_sp_offset         0
+#define Stack_exception(reg)    8(reg)
+#define Stack_handler(reg)      16(reg)
+#define Stack_handler_from_cont(reg) 15(reg)
+
+/* struct c_stack_link */
+#define Cstack_stack(reg)       0(reg)
+#define Cstack_sp(reg)          8(reg)
+#define Cstack_sp_offset        8
+#define Cstack_prev(reg)        16(reg)
+
+/* struct stack_handler */
+#define Handler_value(reg)      0(reg)
+#define Handler_exception(reg)  8(reg)
+#define Handler_effect(reg)     16(reg)
+#define Handler_parent(reg)     24(reg)
+#define Handler_parent_offset   24
 
 /* Function definitions */
 
@@ -59,7 +84,7 @@
 #define LSYMB(glob) .L##glob
 
 #define Addrglobal(reg,glob) \
-        ld      reg, LSYMB(glob)@toc(2)
+        ld      reg, LSYMB(glob)@toc(TOC)
 
         .set    domain_curr_field, 0
 #define DOMAIN_STATE(c_type, name) \
@@ -70,187 +95,264 @@
 
 #define Caml_state(var) 8*domain_field_caml_##var(DOMAIN_STATE_PTR)
 
+/* Switch from OCaml stack to C stack */
+
+.macro SWITCH_OCAML_TO_C
+   /* Fill in Caml_state->current_stack->sp */
+       ld      TMP, Caml_state(current_stack)
+       std     SP, Stack_sp(TMP)
+   /* Fill in Caml_state->c_stack */
+       ld      TMP2, Caml_state(c_stack)
+       std     TMP, Cstack_stack(TMP2)
+       std     SP, Cstack_sp(TMP2)
+   /* Switch to C stack */
+       mr      SP, TMP2
+.endm
+
+/* Switch from C stack to OCaml stack */
+
+.macro SWITCH_C_TO_OCAML
+       ld      TMP, Cstack_sp(SP)
+       mr      SP, TMP
+.endm
+
+/* Save ALLOC_PTR and TRAP_PTR to domain state, and save
+   the registers used by the code generator to a free gc_regs bucket.
+   Address of bucket is then written to Caml_state(gc_regs) */
+
+.macro SAVE_ALL_REGS
+    /* Save allocation pointer and exception pointer */
+       std      ALLOC_PTR, Caml_state(young_ptr)
+       std      TRAP_PTR, Caml_state(exn_handler)
+    /* Point TMP to the gc_regs bucket and skip to next bucket */
+       ld       TMP, Caml_state(gc_regs_bucket)
+       ld       0, 0(TMP)
+       std      0, Caml_state(gc_regs_bucket)
+    /* Save all allocatable integer registers */
+       std      3,  0x000(TMP)
+       std      4,  0x008(TMP)
+       std      5,  0x010(TMP)
+       std      6,  0x018(TMP)
+       std      7,  0x020(TMP)
+       std      8,  0x028(TMP)
+       std      9,  0x030(TMP)
+       std      10, 0x038(TMP)
+       std      14, 0x040(TMP)
+       std      15, 0x048(TMP)
+       std      16, 0x050(TMP)
+       std      17, 0x058(TMP)
+       std      18, 0x060(TMP)
+       std      19, 0x068(TMP)
+       std      20, 0x070(TMP)
+       std      21, 0x078(TMP)
+       std      22, 0x080(TMP)
+       std      23, 0x088(TMP)
+       std      24, 0x090(TMP)
+       std      25, 0x098(TMP)
+       std      26, 0x0A0(TMP)
+       std      27, 0x0A8(TMP)
+       std      28, 0x0B0(TMP)
+    /* Save caller-save floating-point registers
+       (callee-saves are preserved by C functions) */
+       stfd     1,  0x0B8(TMP)
+       stfd     2,  0x0C0(TMP)
+       stfd     3,  0x0C8(TMP)
+       stfd     4,  0x0D0(TMP)
+       stfd     5,  0x0D8(TMP)
+       stfd     6,  0x0E0(TMP)
+       stfd     7,  0x0E8(TMP)
+       stfd     8,  0x0F0(TMP)
+       stfd     9,  0x0F8(TMP)
+       stfd     10, 0x100(TMP)
+       stfd     11, 0x108(TMP)
+       stfd     12, 0x110(TMP)
+       stfd     13, 0x118(TMP)
+       stfd     14, 0x120(TMP)
+    /* Save bucket to gc_regs */
+       std      TMP, Caml_state(gc_regs)
+.end
+
+/* Undo SAVE_ALL_REGS: load all the registers saved to Caml_state(gc_regs)
+   and refresh ALLOC_PTR and TRAP_PTR from Caml_state */
+.macro RESTORE_ALL_REGS
+       ldr      TMP, Caml_state(gc_regs)
+    /* Restore all allocatable integer registers */
+       ld       3,  0x000(TMP)
+       ld       4,  0x008(TMP)
+       ld       5,  0x010(TMP)
+       ld       6,  0x018(TMP)
+       ld       7,  0x020(TMP)
+       ld       8,  0x028(TMP)
+       ld       9,  0x030(TMP)
+       ld       10, 0x038(TMP)
+       ld       14, 0x040(TMP)
+       ld       15, 0x048(TMP)
+       ld       16, 0x050(TMP)
+       ld       17, 0x058(TMP)
+       ld       18, 0x060(TMP)
+       ld       19, 0x068(TMP)
+       ld       20, 0x070(TMP)
+       ld       21, 0x078(TMP)
+       ld       22, 0x080(TMP)
+       ld       23, 0x088(TMP)
+       ld       24, 0x090(TMP)
+       ld       25, 0x098(TMP)
+       ld       26, 0x0A0(TMP)
+       ld       27, 0x0A8(TMP)
+       ld       28, 0x0B0(TMP)
+    /* Save caller-save floating-point registers
+       (callee-saves are preserved by C functions) */
+       lfd      1,  0x0B8(TMP)
+       lfd      2,  0x0C0(TMP)
+       lfd      3,  0x0C8(TMP)
+       lfd      4,  0x0D0(TMP)
+       lfd      5,  0x0D8(TMP)
+       lfd      6,  0x0E0(TMP)
+       lfd      7,  0x0E8(TMP)
+       lfd      8,  0x0F0(TMP)
+       lfd      9,  0x0F8(TMP)
+       lfd      10, 0x100(TMP)
+       lfd      11, 0x108(TMP)
+       lfd      12, 0x110(TMP)
+       lfd      13, 0x118(TMP)
+       lfd      14, 0x120(TMP)
+    /* Put gc_regs struct back in bucket linked list */
+       ld       TMP2, Caml_state(gc_regs_buckets)
+       std      TMP2, 0(TMP)  /* next ptr */
+       std      TMP, Caml_state(gc_regs_buckets)
+    /* Reload new allocation pointer and exception pointer */
+       ld       ALLOC_PTR, Caml_state(young_ptr)
+       ld       TRAP_PTR, Caml_state(exn_handler)
+.end
+
         .section ".text"
         .globl  caml_system__code_begin
 caml_system__code_begin:
 
+/* Reallocate the stack when it is too small. */
+/* Desired size is passed in register TMP2. */
+
+FUNCTION(caml_call_realloc_stack)
+   /* Allocate the minimal frame that the caller did not allocate yet.
+      Save return address there. */
+        addi    SP, SP, -RESERVED_SIZE
+        mflr    0
+        std     0, LR_SAVE(SP)
+   /* Save all registers, as well as ALLOC_PTR and TRAP_PTR */
+        SAVE_ALL_REGS  /* TMP2 is preserved */
+   /* Recover desired size, to be passed in r3 */
+        mr      3, TMP2
+   /* Switch stacks and call caml_try_realloc_stack */
+        SWITCH_OCAML_TO_C
+        addi    SP, SP, -RESERVED_STACK
+        bl      caml_try_realloc_stack
+        SWITCH_C_TO_OCAML
+        cmpdi   3, 0
+   /* Restore all registers, and also return address and TOC register */
+        RESTORE_ALL_REGS
+        ld      0, LR_SAVE(SP)
+        mtlr    0
+        addi    SP, SP, RESERVED_SIZE
+   /* Check status */
+        beq     1f
+   /* Reallocation successful: return to caller */
+        ld      TOC, TOC_SAVE(SP)    /* restore caller's TOC */
+        blr
+   /* Reallocation failed: raise the Stack_overflow exception */
+1:      Addrglobal(3, caml_exn_Stack_overflow)
+        b       caml_raise_exn        
+ENDFUNCTION(caml_call_realloc_stack)
+
 /* Invoke the garbage collector. */
 
 FUNCTION(caml_call_gc)
-#define STACKSIZE (8*32 + 8*32 + PARAM_SAVE_AREA + RESERVED_STACK)
-    /* 32 integer registers + 32 float registers + space for C call */
-    /* Set up stack frame */
-        stwu    1, -STACKSIZE(1)
-    /* Record return address into OCaml code */
+   /* Save return address in caller's frame */
         mflr    0
-        std     0, Caml_state(last_return_address)
-    /* Record lowest stack address */
-        addi    0, 1, STACKSIZE
-        std     0, Caml_state(bottom_of_stack)
-    /* Record pointer to register array */
-        addi    0, 1, 8*32 + PARAM_SAVE_AREA + RESERVED_STACK
-        std     0, Caml_state(gc_regs)
-    /* Save current allocation pointer for debugging purposes */
-        std     ALLOC_PTR, Caml_state(young_ptr)
-    /* Save exception pointer (if e.g. a sighandler raises) */
-        std     TRAP_PTR, Caml_state(exception_pointer)
-    /* Save all registers used by the code generator */
-        addi    11, 1, 8*32 + PARAM_SAVE_AREA + RESERVED_STACK - 8
-        stdu    3, 8(11)
-        stdu    4, 8(11)
-        stdu    5, 8(11)
-        stdu    6, 8(11)
-        stdu    7, 8(11)
-        stdu    8, 8(11)
-        stdu    9, 8(11)
-        stdu    10, 8(11)
-        stdu    14, 8(11)
-        stdu    15, 8(11)
-        stdu    16, 8(11)
-        stdu    17, 8(11)
-        stdu    18, 8(11)
-        stdu    19, 8(11)
-        stdu    20, 8(11)
-        stdu    21, 8(11)
-        stdu    22, 8(11)
-        stdu    23, 8(11)
-        stdu    24, 8(11)
-        stdu    25, 8(11)
-        stdu    26, 8(11)
-        stdu    27, 8(11)
-        stdu    28, 8(11)
-        addi    11, 1, PARAM_SAVE_AREA + RESERVED_STACK - 8
-        stfdu   1, 8(11)
-        stfdu   2, 8(11)
-        stfdu   3, 8(11)
-        stfdu   4, 8(11)
-        stfdu   5, 8(11)
-        stfdu   6, 8(11)
-        stfdu   7, 8(11)
-        stfdu   8, 8(11)
-        stfdu   9, 8(11)
-        stfdu   10, 8(11)
-        stfdu   11, 8(11)
-        stfdu   12, 8(11)
-        stfdu   13, 8(11)
-        stfdu   14, 8(11)
-        stfdu   15, 8(11)
-        stfdu   16, 8(11)
-        stfdu   17, 8(11)
-        stfdu   18, 8(11)
-        stfdu   19, 8(11)
-        stfdu   20, 8(11)
-        stfdu   21, 8(11)
-        stfdu   22, 8(11)
-        stfdu   23, 8(11)
-        stfdu   24, 8(11)
-        stfdu   25, 8(11)
-        stfdu   26, 8(11)
-        stfdu   27, 8(11)
-        stfdu   28, 8(11)
-        stfdu   29, 8(11)
-        stfdu   30, 8(11)
-        stfdu   31, 8(11)
-    /* Call the GC */
+        std     0, LR_SAVE(SP)
+   /* Save all registers, as well as ALLOC_PTR and TRAP_PTR */
+        SAVE_ALL_REGS
+   /* Switch stacks and call caml_garbage_collection */
+        SWITCH_OCAML_TO_C
+        addi    SP, SP, -RESERVED_STACK
         bl      caml_garbage_collection
-        nop
-    /* Reload new allocation pointer */
-        ld      ALLOC_PTR, Caml_state(young_ptr)
-    /* Restore all regs used by the code generator */
-        addi    11, 1, 8*32 + PARAM_SAVE_AREA + RESERVED_STACK - 8
-        ldu     3, 8(11)
-        ldu     4, 8(11)
-        ldu     5, 8(11)
-        ldu     6, 8(11)
-        ldu     7, 8(11)
-        ldu     8, 8(11)
-        ldu     9, 8(11)
-        ldu     10, 8(11)
-        ldu     14, 8(11)
-        ldu     15, 8(11)
-        ldu     16, 8(11)
-        ldu     17, 8(11)
-        ldu     18, 8(11)
-        ldu     19, 8(11)
-        ldu     20, 8(11)
-        ldu     21, 8(11)
-        ldu     22, 8(11)
-        ldu     23, 8(11)
-        ldu     24, 8(11)
-        ldu     25, 8(11)
-        ldu     26, 8(11)
-        ldu     27, 8(11)
-        ldu     28, 8(11)
-        addi    11, 1, PARAM_SAVE_AREA + RESERVED_STACK - 8
-        lfdu    1, 8(11)
-        lfdu    2, 8(11)
-        lfdu    3, 8(11)
-        lfdu    4, 8(11)
-        lfdu    5, 8(11)
-        lfdu    6, 8(11)
-        lfdu    7, 8(11)
-        lfdu    8, 8(11)
-        lfdu    9, 8(11)
-        lfdu    10, 8(11)
-        lfdu    11, 8(11)
-        lfdu    12, 8(11)
-        lfdu    13, 8(11)
-        lfdu    14, 8(11)
-        lfdu    15, 8(11)
-        lfdu    16, 8(11)
-        lfdu    17, 8(11)
-        lfdu    18, 8(11)
-        lfdu    19, 8(11)
-        lfdu    20, 8(11)
-        lfdu    21, 8(11)
-        lfdu    22, 8(11)
-        lfdu    23, 8(11)
-        lfdu    24, 8(11)
-        lfdu    25, 8(11)
-        lfdu    26, 8(11)
-        lfdu    27, 8(11)
-        lfdu    28, 8(11)
-        lfdu    29, 8(11)
-        lfdu    30, 8(11)
-        lfdu    31, 8(11)
-    /* Return to caller, resuming the allocation */
-        ld      11, Caml_state(last_return_address)
-        mtlr    11
-    /* Restore the TOC that the caller saved at the usual place */
-        ld      2, (STACKSIZE + TOC_SAVE)(1)
-    /* Deallocate stack frame */
-        addi    1, 1, STACKSIZE
+        SWITCH_C_TO_OCAML
+   /* Restore registers and return to caller */
+        RESTORE_ALL_REGS
+        ld      0, LR_SAVE(SP)
+        mtlr    0
+        ld      TOC, TOC_SAVE(SP)
         blr
-#undef STACKSIZE
 ENDFUNCTION(caml_call_gc)
 
-/* Call a C function from OCaml */
+/* Call a C function from OCaml.  Function to call is in C_CALL_FUN */
 
 FUNCTION(caml_c_call)
-        .cfi_startproc
-    /* Save return address in a callee-save register */
+   /* Save return address in caller's frame AND in a callee-save register */
         mflr    C_CALL_RET_ADDR
-        .cfi_register 65, C_CALL_RET_ADDR
-    /* Record lowest stack address and return address */
-        std     1, Caml_state(bottom_of_stack)
-        std     C_CALL_RET_ADDR, Caml_state(last_return_address)
-    /* Make the exception handler and alloc ptr available to the C code */
+        std     C_CALL_RET_ADDR, LR_SAVE(SP)
+   /* Switch from OCaml to C */
+        SWITCH_OCAML_TO_C
+   /* Make the exception handler and alloc ptr available to the C code */
         std     ALLOC_PTR, Caml_state(young_ptr)
         std     TRAP_PTR, Caml_state(exception_pointer)
+    /* Call C function (address in C_CALL_FUN) */
+        addi    SP, SP, -RESERVED_STACK
+        mtctr   C_CALL_FUN
+        mr      12, C_CALL_FUN
+        mr      C_CALL_TOC, 2   /* save current TOC in a callee-save register */
+        bctrl
+        mr      2, C_CALL_TOC   /* restore current TOC */
+    /* Restore return address (in register C_CALL_RET_ADDR, preserved by C) */
+        mtlr    C_CALL_RET_ADDR
+    /* Reload allocation pointer*/
+        ld      ALLOC_PTR, Caml_state(young_ptr)
+    /* Switch from C to OCaml */
+        SWITCH_C_TO_OCAML
+    /* Return to caller */
+        blr
+ENDFUNCTION(caml_c_call)
+
+FUNCTION(caml_c_call_stack_args)
+   /* Extra arguments to be passed on stack: 
+      at offsets STACK_ARG_BEGIN to STACK_ARG_END from SP */
+        mr      C_CALL_TMP, SP
+   /* Save return address in caller's frame AND in a callee-save register */
+        mflr    C_CALL_RET_ADDR
+        std     C_CALL_RET_ADDR, LR_SAVE(SP)
+   /* Switch from OCaml to C */
+        SWITCH_OCAML_TO_C
+   /* Make the exception handler and alloc ptr available to the C code */
+        std     ALLOC_PTR, Caml_state(young_ptr)
+        std     TRAP_PTR, Caml_state(exception_pointer)
+   /* Set up a C stack frame that mimicks the frame on the OCaml stack.
+          arguments passed on stack
+          reserved space for arguments passed in registers
+          32 bytes of standard reserved space */
+        addi    0, STACK_ARG_END, 8
+        andi.   0, 0, -16    /* align to 16 */
+        subfc   SP, 0, SP    /* allocate stack frame */
+        /* Copy from original SP + [STACK_ARG_BEGIN...STACK_ARG_END)
+           to new SP + [STACK_ARG_BEGIN...STACK_ARG_END) */
+1:      ldx     0, C_CALL_TMP, STACK_ARG_BEGIN        
+        stdx    0, SP, STACK_ARG_END
+        addi    STACK_ARG_BEGIN, STACK_ARG_BEGIN, 8
+        cmpd    STACK_ARG_BEGIN, STACK_ARG_END
     /* Call C function (address in C_CALL_FUN) */
         mtctr   C_CALL_FUN
         mr      12, C_CALL_FUN
         mr      C_CALL_TOC, 2   /* save current TOC in a callee-save register */
         bctrl
         mr      2, C_CALL_TOC   /* restore current TOC */
-    /* Restore return address (in 27, preserved by the C function) */
+    /* Restore return address (in register C_CALL_RET_ADDR, preserved by C) */
         mtlr    C_CALL_RET_ADDR
     /* Reload allocation pointer*/
         ld      ALLOC_PTR, Caml_state(young_ptr)
+    /* Switch from C to OCaml */
+        SWITCH_C_TO_OCAML
     /* Return to caller */
         blr
-        .cfi_endproc
-ENDFUNCTION(caml_c_call)
+ENDFUNCTION(caml_c_call_stack_args)
+
 
 /* Raise an exception from OCaml */
 

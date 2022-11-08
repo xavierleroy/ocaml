@@ -178,22 +178,7 @@ let loc_results res =
   let (loc, _ofs) = calling_conventions 0 15 100 112 not_supported 0 res
   in loc
 
-(* C calling conventions for ELF32:
-     use GPR 3-10 and FPR 1-8 just like ML calling conventions.
-     Using a float register does not affect the int registers.
-     Always reserve 8 bytes at bottom of stack, plus whatever is needed
-     to hold the overflow arguments.
-   C calling conventions for ELF64v1:
-     Use GPR 3-10 for the first integer arguments.
-     Use FPR 1-13 for the first float arguments.
-     Always reserve stack space for all arguments, even when passed in
-     registers.
-     Always reserve at least 8 words (64 bytes) for the arguments.
-     Always reserve 48 bytes at bottom of stack, plus whatever is needed
-     to hold the arguments.
-     The reserved 48 bytes are automatically added in emit.mlp
-     and need not appear here.
-   C calling conventions for ELF64v2:
+(* C calling conventions for ELF64v2:
      Use GPR 3-10 for the first integer arguments.
      Use FPR 1-13 for the first float arguments.
      If all arguments fit in registers, don't reserve stack space.
