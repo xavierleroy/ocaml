@@ -88,30 +88,28 @@ let _ =
     (fun (c, u, _) -> Hashtbl.add tbl_pairs (c, Uchar.of_int u) ())
     valid_combinations
 
-(* Table used for validating accented letters and decomposing them *)
+(* Table used for validating accented letters *)
 
-type decomp = No_decomp | Decomp of char * Uchar.t
-
-let tbl_letters : (Uchar.t, decomp) Hashtbl.t = Hashtbl.create 32
+let tbl_letters : (Uchar.t, unit) Hashtbl.t = Hashtbl.create 32
 let _ =
-  (* First enter all accented letters, without a decomposed form initially *)
   List.iter
-     (fun u -> Hashtbl.add tbl_letters (Uchar.of_int u) No_decomp)
-     valid_letters;
-  (* Then enter again those that have a decomposed form *)
+     (fun u -> Hashtbl.add tbl_letters (Uchar.of_int u) ())
+     valid_letters
+
+(* Table used for normalization *)
+
+let tbl_normalize : (Uchar.t, char * Uchar.t) Hashtbl.t = Hashtbl.create 32
+let _ =
   List.iter
      (fun (c, u1, u2) ->
-        Hashtbl.replace tbl_letters
-                        (Uchar.of_int u2) (Decomp (c, Uchar.of_int u1)))
+        Hashtbl.add tbl_normalize (Uchar.of_int u2) (c, Uchar.of_int u1))
      valid_combinations
 
-(* Parsing, validation, and normalization *)
+(* Check that a string is a valid UTF8 encoding of a valid identifier *)
 
-let parse s =
-  let len = String.length s in
-  let buf = Buffer.create (len + 16) in
+let check s =
   let rec check prev i =
-    if i < len then begin
+    if i < String.length s then begin
       let c = s.[i] in
       if c < '\x80' then begin
         begin match c with
@@ -119,7 +117,6 @@ let parse s =
         | '0'..'9' | '\'' -> if i = 0 then raise (Error (Wrong_start c))
         | _ -> raise (Error (Character_not_allowed (Uchar.of_char c)))
         end;
-        Buffer.add_char buf c;
         check c (i + 1)
       end else begin
         let d = String.get_utf_8_uchar s i in
@@ -127,34 +124,54 @@ let parse s =
           raise (Error Bad_UTF8_encoding);
         let l = Uchar.utf_decode_length d in
         let u = Uchar.utf_decode_uchar d in
-        begin match Hashtbl.find_opt tbl_pairs (prev, u) with
-        | Some _ ->
-            Buffer.add_utf_8_uchar buf u
-        | None ->
-            match Hashtbl.find_opt tbl_letters u with
-            | Some No_decomp ->
-                Buffer.add_utf_8_uchar buf u
-            | Some(Decomp(c, u')) ->
-                Buffer.add_char buf c;
-                Buffer.add_utf_8_uchar buf u';
-            | None ->
-                raise (Error (Character_not_allowed u))
-        end;
-        check '\x00' (i + l)
+        if Hashtbl.mem tbl_pairs (prev, u)
+        || Hashtbl.mem tbl_letters u
+        then check '\x00' (i + l)
+        else raise (Error (Character_not_allowed u))
       end
     end
   in
-    check '\x00' 0;
-    Buffer.contents buf
-  
+    check '\x00' 0
+
+let is_valid s =
+  try check s; true with Error _ -> false
+
+(* Normalization, NFD style *)
+
+let normalize s =
+  let buf = Buffer.create (String.length s + 16) in
+  let rec norm i =
+    if i < String.length s then begin
+      let c = s.[i] in
+      if c < '\x80' then begin
+        Buffer.add_char buf c;
+        norm (i + 1)
+      end else begin
+        let d = String.get_utf_8_uchar s i in
+        assert (Uchar.utf_decode_is_valid d);
+        let l = Uchar.utf_decode_length d in
+        let u = Uchar.utf_decode_uchar d in
+        begin match Hashtbl.find_opt tbl_normalize u with
+        | Some(c, u') ->
+            Buffer.add_char buf c;
+            Buffer.add_utf_8_uchar buf u'
+        | None ->
+            Buffer.add_utf_8_uchar buf u
+        end;
+        norm (i + l)
+      end
+    end
+  in
+    norm 0; Buffer.contents buf        
+
 (* For capitalization, we rely on the NFD form always starting with a plain
    letter. *)
 
 let is_uppercase s =
-  String.length s > 0 &&
-  match s.[0] with 'A'..'Z' -> true | _ -> false
+  String.length s > 0 && match s.[0] with 'A'..'Z' -> true | _ -> false
 
 let capitalize = String.capitalize_ascii
+let uncapitalize = String.uncapitalize_ascii
 
 (* Explaining errors *)
 

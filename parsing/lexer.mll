@@ -232,7 +232,8 @@ let uchar_for_uchar_escape lexbuf =
 
 let ident_for_extended lexbuf raw_ident =
   try
-    Shortident.parse raw_ident
+    Shortident.check raw_ident;
+    Shortident.normalize raw_ident
   with Shortident.Error err ->
     error lexbuf (Invalid_identifier err)
 

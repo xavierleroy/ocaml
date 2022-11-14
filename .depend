@@ -344,6 +344,7 @@ parsing/docstrings.cmi : \
     parsing/location.cmi
 parsing/lexer.cmo : \
     utils/warnings.cmi \
+    parsing/shortident.cmi \
     parsing/parser.cmi \
     utils/misc.cmi \
     parsing/location.cmi \
@@ -351,12 +352,14 @@ parsing/lexer.cmo : \
     parsing/lexer.cmi
 parsing/lexer.cmx : \
     utils/warnings.cmx \
+    parsing/shortident.cmx \
     parsing/parser.cmx \
     utils/misc.cmx \
     parsing/location.cmx \
     parsing/docstrings.cmx \
     parsing/lexer.cmi
 parsing/lexer.cmi : \
+    parsing/shortident.cmi \
     parsing/parser.cmi \
     parsing/location.cmi
 parsing/location.cmo : \
@@ -602,6 +605,7 @@ typing/env.cmo : \
     utils/warnings.cmi \
     typing/types.cmi \
     typing/subst.cmi \
+    parsing/shortident.cmi \
     typing/shape.cmi \
     typing/predef.cmi \
     typing/persistent_env.cmi \
@@ -624,6 +628,7 @@ typing/env.cmx : \
     utils/warnings.cmx \
     typing/types.cmx \
     typing/subst.cmx \
+    parsing/shortident.cmx \
     typing/shape.cmx \
     typing/predef.cmx \
     typing/persistent_env.cmx \
@@ -5908,6 +5913,7 @@ middle_end/flambda/base_types/var_within_closure.cmi : \
     middle_end/flambda/base_types/closure_element.cmi
 driver/compenv.cmo : \
     utils/warnings.cmi \
+    parsing/shortident.cmi \
     utils/profile.cmi \
     utils/misc.cmi \
     parsing/location.cmi \
@@ -5917,6 +5923,7 @@ driver/compenv.cmo : \
     driver/compenv.cmi
 driver/compenv.cmx : \
     utils/warnings.cmx \
+    parsing/shortident.cmx \
     utils/profile.cmx \
     utils/misc.cmx \
     parsing/location.cmx \

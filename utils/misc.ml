@@ -263,6 +263,7 @@ let find_in_path_rel path name =
   in try_dir path
 
 let find_in_path_uncap path name =
+  (* FIXME *)
   let uname = String.uncapitalize_ascii name in
   let rec try_dir = function
     [] -> raise Not_found

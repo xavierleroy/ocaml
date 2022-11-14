@@ -21,19 +21,34 @@
 
 type t = string
 
-val parse: string -> t
+val check: string -> unit
   (** Check that the given string is correctly UTF-8 encoded and is
-      a valid OCaml identifier.  Returns a normalized form of the
-      string (currently: in NFD form).
-      Raises [Error] in case of invalid UTF-8 data or characters not
-      supported. *)
+      a valid OCaml identifier.  Otherwise, raise [Error] with an
+      explanation of the error. *)
+
+val is_valid: string -> bool
+  (** Like [check] but returns [true] if the string is valid and [false]
+      otherwise.  Does not raise [Error]. *)
+
+val normalize: string -> t
+  (** [normalize s] is [s] where the supported Unicode characters
+      are NFD-normalized.  Other Unicode characters are left unchanged.
+      Can be applied to valid identifiers to get their canonical
+      representation.  Can also be applied to e.g. file names that are
+      not necessarily valid identifiers, but need to be compared modulo
+      different representations of the supported Unicode characters. *)
 
 val is_uppercase: t -> bool
-  (** Return true if the given identifier starts with an uppercase letter,
-      false otherwise. *)
+  (** Return true if the given normalized identifier starts with an
+      uppercase letter, false otherwise. *)
 
 val capitalize: t -> t
-  (** Return the given identifier with the first letter capitalized. *)
+  (** Return the given normalized identifier with the first letter
+      changed to upper case. *)
+
+val uncapitalize: t -> t
+  (** Return the given normalized identifier with the first letter
+      changed to lower case. *)
 
 type error =
   | Bad_UTF8_encoding

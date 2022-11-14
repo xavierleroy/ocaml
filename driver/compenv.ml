@@ -66,12 +66,10 @@ let stop_early = ref false
 let module_of_filename inputfile outputprefix =
   let basename = Filename.basename outputprefix in
   let name = Filename.remove_extension basename in
-  try
-    Shortident.capitalize (Shortident.parse name)
-  with Shortident.Error _ ->
+  if not (Shortident.is_valid name) then
     Location.prerr_warning (Location.in_file inputfile)
       (Warnings.Bad_module_name name);
-    String.capitalize_ascii name
+  Shortident.capitalize (Shortident.normalize name)
 
 type filename = string
 

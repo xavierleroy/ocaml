@@ -22,6 +22,8 @@ type registry = string STbl.t
 let files : registry ref = s_table STbl.create 42
 let files_uncap : registry ref = s_table STbl.create 42
 
+let uncapitalize s = Shortident.uncapitalize (Shortident.normalize s)
+
 module Dir = struct
   type t = {
     path : string;
@@ -38,9 +40,9 @@ module Dir = struct
       None
 
   let find_uncap t fn =
-    let fn = String.uncapitalize_ascii fn in
+    let fn = uncapitalize fn in
     let search base =
-      if String.uncapitalize_ascii base = fn then
+      if uncapitalize base = fn then
         Some (Filename.concat t.path base)
       else
         None
@@ -85,7 +87,7 @@ let prepend_add dir =
   List.iter (fun base ->
       let fn = Filename.concat dir.Dir.path base in
       STbl.replace !files base fn;
-      STbl.replace !files_uncap (String.uncapitalize_ascii base) fn
+      STbl.replace !files_uncap (uncapitalize base) fn
     ) dir.Dir.files
 
 let init ~auto_include l =
@@ -113,7 +115,7 @@ let add dir =
        let fn = Filename.concat dir.Dir.path base in
        if not (STbl.mem !files base) then
          STbl.replace !files base fn;
-       let ubase = String.uncapitalize_ascii base in
+       let ubase = uncapitalize base in
        if not (STbl.mem !files_uncap ubase) then
          STbl.replace !files_uncap ubase fn)
     dir.Dir.files;
@@ -168,9 +170,9 @@ let find_uncap fn =
   assert (not Config.merlin || Local_store.is_bound ());
   try
     if is_basename fn && not !Sys.interactive then
-      STbl.find !files_uncap (String.uncapitalize_ascii fn)
+      STbl.find !files_uncap (uncapitalize fn)
     else
       Misc.find_in_path_uncap (get_paths ()) fn
   with Not_found ->
-    let fn_uncap = String.uncapitalize_ascii fn in
+    let fn_uncap = uncapitalize fn in
     !auto_include_callback Dir.find_uncap fn_uncap

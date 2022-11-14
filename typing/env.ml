@@ -2487,13 +2487,10 @@ let read_signature modname filename =
 let unit_name_of_filename fn =
   match Filename.extension fn with
   | ".cmi" ->
-      begin try
-        Some(Filename.remove_extension fn
-             |> Shortident.parse
-             |> Shortident.capitalize)
-      with Shortident.Error _ ->
-        None
-      end
+      let name = Filename.remove_extension fn in
+      if Shortident.is_valid name
+      then Some (Shortident.capitalize (Shortident.normalize name))
+      else None
   | _ -> None
 
 let persistent_structures_of_dir dir =
