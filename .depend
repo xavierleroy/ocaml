@@ -468,6 +468,11 @@ parsing/printast.cmx : \
     parsing/printast.cmi
 parsing/printast.cmi : \
     parsing/parsetree.cmi
+parsing/shortident.cmo : \
+    parsing/shortident.cmi
+parsing/shortident.cmx : \
+    parsing/shortident.cmi
+parsing/shortident.cmi :
 parsing/syntaxerr.cmo : \
     parsing/location.cmi \
     parsing/syntaxerr.cmi
