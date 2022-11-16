@@ -99,7 +99,7 @@ opt.opt: profiling.cmx
 
 OCAMLCP = config.cmo build_path_prefix_map.cmo misc.cmo profile.cmo \
           warnings.cmo identifiable.cmo numbers.cmo arg_helper.cmo \
-          local_store.cmo load_path.cmo clflags.cmo \
+          local_store.cmo unident.cmo load_path.cmo clflags.cmo \
           terminfo.cmo location.cmo ccomp.cmo compenv.cmo \
           main_args.cmo ocamlcp_common.cmo
 
@@ -141,7 +141,8 @@ ocamlmklib.opt$(EXE): $(call byte2native, $(OCAMLMKLIB))
 
 OCAMLMKTOP=config.cmo build_path_prefix_map.cmo misc.cmo \
        identifiable.cmo numbers.cmo arg_helper.cmo local_store.cmo \
-       load_path.cmo clflags.cmo profile.cmo ccomp.cmo ocamlmktop.cmo
+       unident.cmo load_path.cmo clflags.cmo profile.cmo ccomp.cmo \
+       ocamlmktop.cmo
 
 ocamlmktop$(EXE): $(OCAMLMKTOP)
 ocamlmktop.opt$(EXE): $(call byte2native, $(OCAMLMKTOP))

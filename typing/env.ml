@@ -2494,7 +2494,7 @@ let unit_name_of_filename fn =
   match Filename.extension fn with
   | ".cmi" -> begin
       let unit =
-        String.capitalize_ascii (Filename.remove_extension fn)
+        Unident.capitalize (Filename.remove_extension fn)
       in
       if String.for_all is_identchar_latin1 unit then
         Some unit

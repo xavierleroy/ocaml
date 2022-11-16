@@ -79,6 +79,7 @@ COMPILERLIBS_SOURCES=\
   utils/numbers.ml \
   utils/arg_helper.ml \
   utils/local_store.ml \
+  utils/unident.ml \
   utils/load_path.ml \
   utils/clflags.ml \
   utils/profile.ml \
