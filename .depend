@@ -181,6 +181,11 @@ utils/terminfo.cmo : \
 utils/terminfo.cmx : \
     utils/terminfo.cmi
 utils/terminfo.cmi :
+utils/unident.cmo : \
+    utils/unident.cmi
+utils/unident.cmx : \
+    utils/unident.cmi
+utils/unident.cmi :
 utils/warnings.cmo : \
     utils/misc.cmi \
     utils/warnings.cmi
@@ -344,6 +349,7 @@ parsing/docstrings.cmi : \
     parsing/location.cmi
 parsing/lexer.cmo : \
     utils/warnings.cmi \
+    utils/unident.cmi \
     parsing/parser.cmi \
     utils/misc.cmi \
     parsing/location.cmi \
@@ -351,6 +357,7 @@ parsing/lexer.cmo : \
     parsing/lexer.cmi
 parsing/lexer.cmx : \
     utils/warnings.cmx \
+    utils/unident.cmx \
     parsing/parser.cmx \
     utils/misc.cmx \
     parsing/location.cmx \
