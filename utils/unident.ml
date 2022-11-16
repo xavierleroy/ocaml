@@ -1,7 +1,3 @@
-type t = string
-
-let to_string x = x
-
 let known_pairs : (Uchar.t * Uchar.t, Uchar.t) Hashtbl.t = Hashtbl.create 32
 
 let _ =
@@ -163,5 +159,3 @@ let valid_identifier s =
 let is_capitalized s =
   s <> "" && 
   uchar_is_uppercase (Uchar.utf_decode_uchar (String.get_utf_8_uchar s 0))
-
-let unsafe_is_capitalized = is_capitalized

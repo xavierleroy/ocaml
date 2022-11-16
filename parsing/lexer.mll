@@ -233,15 +233,14 @@ let uchar_for_uchar_escape lexbuf =
 let ident_for_extended lexbuf raw_name =
   let name = Unident.normalize raw_name in
   match Unident.check_identifier name with
-  | Unident.Valid -> Unident.to_string name
+  | Unident.Valid -> name
   | Unident.Invalid_character u -> error lexbuf (Invalid_char_in_ident u)
   | Unident.Invalid_beginning _ -> assert false (* excluded by the regexps *)
 
 let is_keyword name = Hashtbl.mem keyword_table name
 
 let check_label_name lexbuf name =
-  if Unident.unsafe_is_capitalized name then
-    error lexbuf (Capitalized_label name);
+  if Unident.is_capitalized name then error lexbuf (Capitalized_label name);
   if is_keyword name then error lexbuf (Keyword_as_label name)
 
 (* Update the current location with file name and line number. *)
@@ -423,7 +422,7 @@ rule token = parse
       { UIDENT name } (* No capitalized keywords *)
   | identstart_ext identchar_ext * as raw_name
       { let name = ident_for_extended lexbuf raw_name in
-        if Unident.unsafe_is_capitalized name
+        if Unident.is_capitalized name
         then UIDENT name
         else LIDENT name }
   | int_literal as lit { INT (lit, None) }
