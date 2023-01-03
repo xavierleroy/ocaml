@@ -186,7 +186,7 @@ OCAMLLEX ?= $(BEST_OCAMLLEX)
 OCAMLLEXFLAGS ?= -q
 
 %.ml: %.mll
-	$(OCAMLLEX) $(OCAMLLEXFLAGS) $<
+	$(V_OCAMLLEX)$(OCAMLLEX) $(OCAMLLEXFLAGS) $<
 
 # Parser generation
 
@@ -195,7 +195,7 @@ OCAMLYACC ?= $(ROOTDIR)/yacc/ocamlyacc$(EXE)
 OCAMLYACCFLAGS ?= --strict -v
 
 %.ml %.mli: %.mly
-	$(OCAMLYACC) $(OCAMLYACCFLAGS) $<
+	$(V_OCAMLYACC)$(OCAMLYACC) $(OCAMLYACCFLAGS) $<
 
 SAK = $(ROOTDIR)/runtime/sak$(EXE)
 
@@ -234,7 +234,7 @@ $(eval $(call PROGRAM_SYNONYM,$(1)))
 $(1)$(EXE): \
   $$$$(patsubst %,%.cma, $$$$($(basename $(notdir $(1)))_LIBRARIES)) \
   $$$$(patsubst %,%.cmo, $$$$($(basename $(notdir $(1)))_MODULES))
-	$$(LINK_BYTECODE_PROGRAM) -o $$@ $$^
+	$$(V_LINKC)$$(LINK_BYTECODE_PROGRAM) -o $$@ $$^
 endef # OCAML_BYTECODE_PROGRAM
 
 LINK_NATIVE_PROGRAM =\
@@ -245,7 +245,7 @@ $(eval $(call PROGRAM_SYNONYM,$(1)))
 $(1)$(EXE): \
   $$$$(patsubst %,%.cmxa, $$$$($(basename $(notdir $(1)))_LIBRARIES)) \
   $$$$(patsubst %,%.cmx, $$$$($(basename $(notdir $(1)))_MODULES))
-	$$(LINK_NATIVE_PROGRAM) -o $$@ $$^
+	$$(V_LINKOPT)$$(LINK_NATIVE_PROGRAM) -o $$@ $$^
 endef # OCAML_NATIVE_PROGRAM
 
 define OCAML_PROGRAM

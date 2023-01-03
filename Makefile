@@ -73,22 +73,22 @@ include compilerlibs/Makefile.compilerlibs
 
 utils/config.ml: \
   utils/config_$(if $(filter true,$(IN_COREBOOT_CYCLE)),boot,main).ml
-	cp $< $@
+	$(V_GEN)cp $< $@
 utils/config_boot.ml: utils/config.fixed.ml utils/config.common.ml
-	cat $^ > $@
+	$(V_GEN)cat $^ > $@
 
 utils/config_main.ml: utils/config.generated.ml utils/config.common.ml
-	cat $^ > $@
+	$(V_GEN)cat $^ > $@
 
 .PHONY: reconfigure
 reconfigure:
 	ac_read_git_config=true ./configure $(CONFIGURE_ARGS)
 
 utils/domainstate.ml: utils/domainstate.ml.c runtime/caml/domain_state.tbl
-	$(CPP) -I runtime/caml $< > $@
+	$(V_GEN)$(CPP) -I runtime/caml $< > $@
 
 utils/domainstate.mli: utils/domainstate.mli.c runtime/caml/domain_state.tbl
-	$(CPP) -I runtime/caml $< > $@
+	$(V_GEN)$(CPP) -I runtime/caml $< > $@
 
 configure: tools/autogen configure.ac aclocal.m4 build-aux/ocaml_version.m4
 	$<
@@ -493,11 +493,11 @@ ocaml_MODULES = toplevel/topstart
 .INTERMEDIATE: ocaml.tmp
 ocaml.tmp: OC_BYTECODE_LDFLAGS += -I toplevel/byte -linkall
 ocaml.tmp: $(ocaml_LIBRARIES:=.cma) $(ocaml_MODULES:=.cmo)
-	$(LINK_BYTECODE_PROGRAM) -o $@ $^
+	$(V_LINKC)$(LINK_BYTECODE_PROGRAM) -o $@ $^
 
 $(eval $(call PROGRAM_SYNONYM,ocaml))
 ocaml$(EXE): $(expunge) ocaml.tmp
-	- $(OCAMLRUN) $^ $@ $(PERVASIVES)
+	- $(V_GEN)$(OCAMLRUN) $^ $@ $(PERVASIVES)
 
 partialclean::
 	rm -f ocaml ocaml.exe
@@ -541,7 +541,7 @@ beforedepend:: parsing/lexer.ml
 
 lambda/runtimedef.ml: lambda/generate_runtimedef.sh runtime/caml/fail.h \
     runtime/primitives
-	$^ > $@
+	$(V_GEN)$^ > $@
 
 partialclean::
 	rm -f lambda/runtimedef.ml
@@ -551,25 +551,25 @@ beforedepend:: lambda/runtimedef.ml
 # Choose the right machine-dependent files
 
 asmcomp/arch.mli: asmcomp/$(ARCH)/arch.mli
-	cd asmcomp; $(LN) $(ARCH)/arch.mli .
+	$(V_LN)cd asmcomp; $(LN) $(ARCH)/arch.mli .
 
 asmcomp/arch.ml: asmcomp/$(ARCH)/arch.ml
-	cd asmcomp; $(LN) $(ARCH)/arch.ml .
+	$(V_LN)cd asmcomp; $(LN) $(ARCH)/arch.ml .
 
 asmcomp/proc.ml: asmcomp/$(ARCH)/proc.ml
-	cd asmcomp; $(LN) $(ARCH)/proc.ml .
+	$(V_LN)cd asmcomp; $(LN) $(ARCH)/proc.ml .
 
 asmcomp/selection.ml: asmcomp/$(ARCH)/selection.ml
-	cd asmcomp; $(LN) $(ARCH)/selection.ml .
+	$(V_LN)cd asmcomp; $(LN) $(ARCH)/selection.ml .
 
 asmcomp/CSE.ml: asmcomp/$(ARCH)/CSE.ml
-	cd asmcomp; $(LN) $(ARCH)/CSE.ml .
+	$(V_LN)cd asmcomp; $(LN) $(ARCH)/CSE.ml .
 
 asmcomp/reload.ml: asmcomp/$(ARCH)/reload.ml
-	cd asmcomp; $(LN) $(ARCH)/reload.ml .
+	$(V_LN)cd asmcomp; $(LN) $(ARCH)/reload.ml .
 
 asmcomp/scheduling.ml: asmcomp/$(ARCH)/scheduling.ml
-	cd asmcomp; $(LN) $(ARCH)/scheduling.ml .
+	$(V_LN)cd asmcomp; $(LN) $(ARCH)/scheduling.ml .
 
 # Preprocess the code emitters
 cvt_emit = tools/cvt_emit$(EXE)
@@ -577,7 +577,7 @@ cvt_emit = tools/cvt_emit$(EXE)
 beforedepend:: tools/cvt_emit.ml
 
 asmcomp/emit.ml: asmcomp/$(ARCH)/emit.mlp $(cvt_emit)
-	echo \# 1 \"asmcomp/$(ARCH)/emit.mlp\" > $@
+	$(V_GEN)echo \# 1 \"asmcomp/$(ARCH)/emit.mlp\" > $@ && \
 	$(OCAMLRUN) $(cvt_emit) < $< >> $@ \
 	|| { rm -f $@; exit 2; }
 
@@ -765,7 +765,7 @@ endif
 ## Generated non-object files
 
 runtime/ld.conf: $(ROOTDIR)/Makefile.config
-	echo "$(STUBLIBDIR)" > $@
+	$(V_GEN)echo "$(STUBLIBDIR)" > $@ && \
 	echo "$(LIBDIR)" >> $@
 
 # If primitives contain duplicated lines (e.g. because the code is defined
@@ -793,10 +793,10 @@ runtime/primitives: \
   $(shell runtime/gen_primitives.sh > runtime/primitives.new; \
                     cmp -s runtime/primitives runtime/primitives.new || \
                     echo runtime/primitives.new)
-	cp $^ $@
+	$(V_GEN)cp $^ $@
 
 runtime/prims.c : runtime/primitives
-	(echo '#define CAML_INTERNALS'; \
+	$(V_GEN)(echo '#define CAML_INTERNALS'; \
          echo '#include "caml/mlvalues.h"'; \
 	 echo '#include "caml/prims.h"'; \
 	 sed -e 's/.*/extern value &();/' $<; \
@@ -808,7 +808,7 @@ runtime/prims.c : runtime/primitives
 	 echo '  0 };') > $@
 
 runtime/caml/opnames.h : runtime/caml/instruct.h
-	tr -d '\r' < $< | \
+	$(V_GEN)tr -d '\r' < $< | \
 	sed -e '/\/\*/d' \
 	    -e '/^#/d' \
 	    -e 's/enum /static char * names_of_/' \
@@ -817,7 +817,7 @@ runtime/caml/opnames.h : runtime/caml/instruct.h
 
 # runtime/caml/jumptbl.h is required only if you have GCC 2.0 or later
 runtime/caml/jumptbl.h : runtime/caml/instruct.h
-	tr -d '\r' < $< | \
+	$(V_GEN)tr -d '\r' < $< | \
 	sed -n -e '/^  /s/ \([A-Z]\)/ \&\&lbl_\1/gp' \
 	       -e '/^}/q' > $@
 
@@ -828,64 +828,64 @@ SAK_CFLAGS ?= $(OC_CFLAGS) $(CFLAGS) $(OC_CPPFLAGS) $(CPPFLAGS)
 SAK_LINK ?= $(MKEXE_VIA_CC)
 
 $(SAK): runtime/sak.$(O)
-	$(call SAK_LINK,$@,$^)
+	$(V_MKEXE)$(call SAK_LINK,$@,$^)
 
 runtime/sak.$(O): runtime/sak.c runtime/caml/misc.h runtime/caml/config.h
-	$(SAK_CC) -c $(SAK_CFLAGS) $(OUTPUTOBJ)$@ $<
+	$(V_CC)$(SAK_CC) -c $(SAK_CFLAGS) $(OUTPUTOBJ)$@ $<
 
 C_LITERAL = $(shell $(SAK) encode-C-literal '$(1)')
 
 runtime/build_config.h: $(ROOTDIR)/Makefile.config $(SAK)
-	echo '/* This file is generated from $(ROOTDIR)/Makefile.config */' > $@
-	echo '#define OCAML_STDLIB_DIR $(call C_LITERAL,$(LIBDIR))' >> $@
+	$(V_GEN)echo '/* This file is generated from $(ROOTDIR)/Makefile.config */' > $@ && \
+	echo '#define OCAML_STDLIB_DIR $(call C_LITERAL,$(LIBDIR))' >> $@ && \
 	echo '#define HOST "$(HOST)"' >> $@
 
 ## Runtime libraries and programs
 
 runtime/ocamlrun$(EXE): runtime/prims.$(O) runtime/libcamlrun.$(A)
-	$(MKEXE) -o $@ $^ $(BYTECCLIBS)
+	$(V_MKEXE)$(MKEXE) -o $@ $^ $(BYTECCLIBS)
 
 runtime/ocamlruns$(EXE): runtime/prims.$(O) runtime/libcamlrun_non_shared.$(A)
-	$(call MKEXE_VIA_CC,$@,$^ $(BYTECCLIBS))
+	$(V_MKEXE)$(call MKEXE_VIA_CC,$@,$^ $(BYTECCLIBS))
 
 runtime/libcamlrun.$(A): $(libcamlrun_OBJECTS)
-	$(call MKLIB,$@, $^)
+	$(V_MKLIB)$(call MKLIB,$@, $^)
 
 runtime/libcamlrun_non_shared.$(A): $(libcamlrun_non_shared_OBJECTS)
-	$(call MKLIB,$@, $^)
+	$(V_MKLIB)$(call MKLIB,$@, $^)
 
 runtime/ocamlrund$(EXE): runtime/prims.$(O) runtime/libcamlrund.$(A)
-	$(MKEXE) $(MKEXEDEBUGFLAG) -o $@ $^ $(BYTECCLIBS)
+	$(V_MKEXE)$(MKEXE) $(MKEXEDEBUGFLAG) -o $@ $^ $(BYTECCLIBS)
 
 runtime/libcamlrund.$(A): $(libcamlrund_OBJECTS)
-	$(call MKLIB,$@, $^)
+	$(V_MKLIB)$(call MKLIB,$@, $^)
 
 runtime/ocamlruni$(EXE): runtime/prims.$(O) runtime/libcamlruni.$(A)
-	$(MKEXE) -o $@ $^ $(INSTRUMENTED_RUNTIME_LIBS) $(BYTECCLIBS)
+	$(V_MKEXE)$(MKEXE) -o $@ $^ $(INSTRUMENTED_RUNTIME_LIBS) $(BYTECCLIBS)
 
 runtime/libcamlruni.$(A): $(libcamlruni_OBJECTS)
-	$(call MKLIB,$@, $^)
+	$(V_MKLIB)$(call MKLIB,$@, $^)
 
 runtime/libcamlrun_pic.$(A): $(libcamlrunpic_OBJECTS)
-	$(call MKLIB,$@, $^)
+	$(V_MKLIB)$(call MKLIB,$@, $^)
 
 runtime/libcamlrun_shared.$(SO): $(libcamlrunpic_OBJECTS)
-	$(MKDLL) -o $@ $^ $(BYTECCLIBS)
+	$(V_MKDLL)$(MKDLL) -o $@ $^ $(BYTECCLIBS)
 
 runtime/libasmrun.$(A): $(libasmrun_OBJECTS)
-	$(call MKLIB,$@, $^)
+	$(V_MKLIB)$(call MKLIB,$@, $^)
 
 runtime/libasmrund.$(A): $(libasmrund_OBJECTS)
-	$(call MKLIB,$@, $^)
+	$(V_MKLIB)$(call MKLIB,$@, $^)
 
 runtime/libasmruni.$(A): $(libasmruni_OBJECTS)
-	$(call MKLIB,$@, $^)
+	$(V_MKLIB)$(call MKLIB,$@, $^)
 
 runtime/libasmrun_pic.$(A): $(libasmrunpic_OBJECTS)
-	$(call MKLIB,$@, $^)
+	$(V_MKLIB)$(call MKLIB,$@, $^)
 
 runtime/libasmrun_shared.$(SO): $(libasmrunpic_OBJECTS)
-	$(MKDLL) -o $@ $^ $(NATIVECCLIBS)
+	$(V_MKDLL)$(MKDLL) -o $@ $^ $(NATIVECCLIBS)
 
 ## Runtime target-specific preprocessor and compiler flags
 
@@ -974,45 +974,45 @@ ASPP_ERROR = \
           echo "try producing $*.o by hand.";\
           exit 2; }
 runtime/%.o: runtime/%.S
-	$(ASPP) $(OC_ASPPFLAGS) -o $@ $< || $(ASPP_ERROR)
+	$(V_ASM)$(ASPP) $(OC_ASPPFLAGS) -o $@ $< || $(ASPP_ERROR)
 
 runtime/%.d.o: runtime/%.S
-	$(ASPP) $(OC_ASPPFLAGS) $(OC_DEBUG_CPPFLAGS) -o $@ $< || $(ASPP_ERROR)
+	$(V_ASM)$(ASPP) $(OC_ASPPFLAGS) $(OC_DEBUG_CPPFLAGS) -o $@ $< || $(ASPP_ERROR)
 
 runtime/%.i.o: runtime/%.S
-	$(ASPP) $(OC_ASPPFLAGS) $(OC_INSTR_CPPFLAGS) -o $@ $< || $(ASPP_ERROR)
+	$(V_ASM)$(ASPP) $(OC_ASPPFLAGS) $(OC_INSTR_CPPFLAGS) -o $@ $< || $(ASPP_ERROR)
 
 runtime/%_libasmrunpic.o: runtime/%.S
-	$(ASPP) $(OC_ASPPFLAGS) $(SHAREDLIB_CFLAGS) -o $@ $<
+	$(V_ASM)$(ASPP) $(OC_ASPPFLAGS) $(SHAREDLIB_CFLAGS) -o $@ $<
 
 runtime/domain_state64.inc: \
   runtime/gen_domain_state64_inc.awk runtime/caml/domain_state.tbl
-	$(AWK) -f $^ > $@
+	$(V_GEN)$(AWK) -f $^ > $@
 
 runtime/domain_state32.inc: \
   runtime/gen_domain_state32_inc.awk runtime/caml/domain_state.tbl
-	$(AWK) -f $^ > $@
+	$(V_GEN)$(AWK) -f $^ > $@
 
 runtime/amd64nt.obj: runtime/amd64nt.asm runtime/domain_state64.inc
-	$(ASM)$@ $<
+	$(V_ASM)$(ASM)$@ $<
 
 runtime/i386nt.obj: runtime/i386nt.asm runtime/domain_state32.inc
-	$(ASM)$@ $<
+	$(V_ASM)$(ASM)$@ $<
 
 runtime/amd64nt.d.obj: runtime/amd64nt.asm runtime/domain_state64.inc
-	$(ASM)$@ $(ocamlrund_CPPFLAGS) $<
+	$(V_ASM)$(ASM)$@ $(ocamlrund_CPPFLAGS) $<
 
 runtime/i386nt.d.obj: runtime/i386nt.asm runtime/domain_state32.inc
-	$(ASM)$@ $(ocmalrund_CPPFLAGS) $<
+	$(V_ASM)$(ASM)$@ $(ocmalrund_CPPFLAGS) $<
 
 runtime/amd64nt.i.obj: runtime/amd64nt.asm runtime/domain_state64.inc
-	$(ASM)$@ $(ocamlruni_CPPFLAGS) $<
+	$(V_ASM)$(ASM)$@ $(ocamlruni_CPPFLAGS) $<
 
 runtime/i386nt.i.obj: runtime/i386nt.asm runtime/domain_state32.inc
-	$(ASM)$@ $(ocamlruni_CPPFLAGS) $<
+	$(V_ASM)$(ASM)$@ $(ocamlruni_CPPFLAGS) $<
 
 runtime/%_libasmrunpic.obj: runtime/%.asm
-	$(ASM)$@ $<
+	$(V_ASM)$(ASM)$@ $<
 
 ## Runtime dependencies
 
@@ -1044,7 +1044,7 @@ endif
 .PHONY: makeruntime
 makeruntime: runtime-all
 stdlib/libcamlrun.$(A): runtime-all
-	cd stdlib; $(LN) ../runtime/libcamlrun.$(A) .
+	$(V_LN)cd stdlib; $(LN) ../runtime/libcamlrun.$(A) .
 clean::
 	rm -f $(addprefix runtime/, *.o *.obj *.a *.lib *.so *.dll ld.conf)
 	rm -f $(addprefix runtime/, ocamlrun ocamlrund ocamlruni ocamlruns sak)
@@ -1144,7 +1144,7 @@ ocamlyacc_CPPFLAGS = -DNDEBUG
 ocamlyacc: $(ocamlyacc_PROGRAM)$(EXE)
 
 $(ocamlyacc_PROGRAM)$(EXE): $(ocamlyacc_OBJECTS)
-	$(MKEXE) -o $@ $^
+	$(V_MKEXE)$(MKEXE) -o $@ $^
 
 clean::
 	rm -f $(ocamlyacc_MODULES:=.o) $(ocamlyacc_MODULES:=.obj)
@@ -1176,9 +1176,9 @@ include Makefile.menhir
 # generated parser.ml.
 
 parsing/camlinternalMenhirLib.ml: boot/menhir/menhirLib.ml
-	cp $< $@
+	$(V_GEN)cp $< $@
 parsing/camlinternalMenhirLib.mli: boot/menhir/menhirLib.mli
-	echo '[@@@ocaml.warning "-67"]' > $@
+	$(V_GEN)echo '[@@@ocaml.warning "-67"]' > $@ && \
 	cat $< >> $@
 
 # Copy parsing/parser.ml from boot/
@@ -1193,9 +1193,9 @@ parsing/parser.ml: $(PARSER_DEPS)
 ifeq "$(OCAML_DEVELOPMENT_VERSION)" "true"
 	@-tools/check-parser-uptodate-or-warn.sh
 endif
-	sed "s/MenhirLib/CamlinternalMenhirLib/g" $< > $@
+	$(V_GEN)sed "s/MenhirLib/CamlinternalMenhirLib/g" $< > $@
 parsing/parser.mli: boot/menhir/parser.mli
-	sed "s/MenhirLib/CamlinternalMenhirLib/g" $< > $@
+	$(V_GEN)sed "s/MenhirLib/CamlinternalMenhirLib/g" $< > $@
 
 beforedepend:: parsing/camlinternalMenhirLib.ml \
   parsing/camlinternalMenhirLib.mli \
@@ -1286,7 +1286,7 @@ checkstack: tools/checkstack$(EXE)
 
 .INTERMEDIATE: tools/checkstack$(EXE) tools/checkstack.$(O)
 tools/checkstack$(EXE): tools/checkstack.$(O)
-	$(MKEXE) $(OUTPUTEXE)$@ $<
+	$(V_MKEXE)$(MKEXE) $(OUTPUTEXE)$@ $<
 else
 checkstack:
 	@
@@ -1410,7 +1410,7 @@ make_opcodes_LIBRARIES =
 make_opcodes_MODULES = tools/make_opcodes
 
 tools/opnames.ml: runtime/caml/instruct.h $(make_opcodes)
-	$(NEW_OCAMLRUN) $(make_opcodes) -opnames < $< > $@
+	$(V_GEN)$(NEW_OCAMLRUN) $(make_opcodes) -opnames < $< > $@
 
 clean::
 	rm -f $(addprefix tools/,opnames.ml make_opcodes.ml)
@@ -1523,10 +1523,10 @@ toplevel/native/topeval.cmx: otherlibs/dynlink/dynlink.cmxa
 # The numeric opcodes
 
 bytecomp/opcodes.ml: runtime/caml/instruct.h $(make_opcodes)
-	$(NEW_OCAMLRUN) $(make_opcodes) -opcodes < $< > $@
+	$(V_GEN)$(NEW_OCAMLRUN) $(make_opcodes) -opcodes < $< > $@
 
 bytecomp/opcodes.mli: bytecomp/opcodes.ml
-	$(CAMLC) -i $< > $@
+	$(V_GEN)$(CAMLC) -i $< > $@
 
 partialclean::
 	rm -f bytecomp/opcodes.ml
@@ -1560,7 +1560,7 @@ partialclean::
 
 .PHONY: depend
 depend: beforedepend
-	(for d in utils parsing typing bytecomp asmcomp middle_end \
+	$(V_GEN)(for d in utils parsing typing bytecomp asmcomp middle_end \
          lambda file_formats middle_end/closure middle_end/flambda \
          middle_end/flambda/base_types \
          driver toplevel toplevel/byte toplevel/native lex tools; \
