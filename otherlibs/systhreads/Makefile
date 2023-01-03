@@ -59,25 +59,25 @@ all: lib$(LIBNAME).$(A) $(LIBNAME).cma $(CMIFILES)
 allopt: lib$(LIBNAME)nat.$(A) $(LIBNAME).cmxa $(CMIFILES)
 
 lib$(LIBNAME).$(A): $(BYTECODE_C_OBJS)
-	$(MKLIB_CMD) -o $(LIBNAME) $(BYTECODE_C_OBJS)
+	$(V_OCAMLMKLIB)$(MKLIB_CMD) -o $(LIBNAME) $(BYTECODE_C_OBJS)
 
 lib$(LIBNAME)nat.$(A): $(NATIVECODE_C_OBJS)
-	$(MKLIB_CMD) -o $(LIBNAME)nat $^
+	$(V_OCAMLMKLIB)$(MKLIB_CMD) -o $(LIBNAME)nat $^
 
 $(LIBNAME).cma: $(THREADS_BCOBJS)
 ifeq "$(UNIX_OR_WIN32)" "unix"
-	$(MKLIB) -o $(LIBNAME) -ocamlc '$(CAMLC)' -cclib -lunixbyt -linkall $^
+	$(V_OCAMLMKLIB)$(MKLIB) -o $(LIBNAME) -ocamlc '$(CAMLC)' -cclib -lunixbyt -linkall $^
 # TODO: Figure out why -cclib -lunix is used here.
 # It may be because of the threadsUnix module which is deprecated.
 # It may hence be good to figure out whether this module shouldn't be
 # removed, and then -cclib -lunix arguments.
 else # Windows
-	$(MKLIB) -o $(LIBNAME) -ocamlc "$(CAMLC)" -linkall $^
+	$(V_OCAMLMKLIB)$(MKLIB) -o $(LIBNAME) -ocamlc "$(CAMLC)" -linkall $^
 endif
 
 # See remark above: force static linking of libthreadsnat.a
 $(LIBNAME).cmxa: $(THREADS_NCOBJS)
-	$(CAMLOPT) -linkall -a -cclib -lthreadsnat -o $@ $^
+	$(V_LINKOPT)$(CAMLOPT) -linkall -a -cclib -lthreadsnat -o $@ $^
 
 # Note: I removed "-cclib -lunix" from the line above.
 # Indeed, if we link threads.cmxa, then we must also link unix.cmxa,
@@ -169,6 +169,6 @@ $(foreach object_type, b n, $(eval $(call GEN_RULE,$(object_type))))
 
 .PHONY: depend
 depend:
-	$(OCAMLRUN) $(ROOTDIR)/boot/ocamlc -depend -slash *.mli *.ml > .depend
+	$(V_GEN)$(OCAMLRUN) $(ROOTDIR)/boot/ocamlc -depend -slash *.mli *.ml > .depend
 
 include .depend
