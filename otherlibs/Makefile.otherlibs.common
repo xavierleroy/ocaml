@@ -156,25 +156,20 @@ distclean:: clean
 	rm -f META
 
 %.cmi: %.mli
-	$(info OCAMLC $<)
-	@$(CAMLC) -c $(COMPFLAGS) $<
+	$(V_OCAMLC)$(CAMLC) -c $(COMPFLAGS) $<
 
 %.cmo: %.ml
-	$(info OCAMLC $<)
-	@$(CAMLC) -c $(COMPFLAGS) $<
+	$(V_OCAMLC)$(CAMLC) -c $(COMPFLAGS) $<
 
 %.cmx: %.ml
-	$(info OCAMLOPT $<)
-	@$(CAMLOPT) -c $(COMPFLAGS) $(OPTCOMPFLAGS) $<
+	$(V_OCAMLOPT)$(CAMLOPT) -c $(COMPFLAGS) $(OPTCOMPFLAGS) $<
 
 %.b.$(O): %.c $(REQUIRED_HEADERS)
-	$(info CC $< -> $@)
-	@$(CC) -c $(OC_CFLAGS) $(CFLAGS) $(OC_CPPFLAGS) $(CPPFLAGS) \
+	$(V_CC)$(CC) -c $(OC_CFLAGS) $(CFLAGS) $(OC_CPPFLAGS) $(CPPFLAGS) \
 	  $(OUTPUTOBJ)$@ $<
 
 %.n.$(O): %.c $(REQUIRED_HEADERS)
-	$(info CC $< -> $@)
-	@$(CC) -c $(OC_CFLAGS) $(OC_NATIVE_C_FLAGS) $(CFLAGS) \
+	$(V_CC)$(CC) -c $(OC_CFLAGS) $(OC_NATIVE_C_FLAGS) $(CFLAGS) \
 	  $(OC_CPPFLAGS) $(CPPFLAGS) $(OUTPUTOBJ)$@ $<
 
 ifeq "$(COMPUTE_DEPS)" "true"
@@ -184,5 +179,4 @@ endif
 endif
 
 $(DEPDIR)/%.$(D): %.c | $(DEPDIR)
-	$(info CCDEPS $< -> $@)
-	@$(DEP_CC) $(OC_CPPFLAGS) $(CPPFLAGS) $< -MT '$*.$(O)' -MF $@
+	$(V_CCDEPS)$(DEP_CC) $(OC_CPPFLAGS) $(CPPFLAGS) $< -MT '$*.$(O)' -MF $@

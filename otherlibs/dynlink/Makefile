@@ -174,18 +174,15 @@ COMPILERLIBS_CMO=$(COMPILERLIBS_COPIED_SOURCES:.ml=.cmo)
 COMPILERLIBS_CMX=$(COMPILERLIBS_COPIED_SOURCES:.ml=.cmx)
 
 $(LOCAL_SRC)/%.cmi: $(LOCAL_SRC)/%.mli
-	$(info OCAMLC $<)
-	@$(OCAMLC) -c -for-pack Dynlink_compilerlibs $(COMPFLAGS) \
+	$(V_OCAMLC)$(OCAMLC) -c -for-pack Dynlink_compilerlibs $(COMPFLAGS) \
           -I $(LOCAL_SRC) -o $@ $(LOCAL_SRC)/$*.mli
 
 $(LOCAL_SRC)/%.cmo: $(LOCAL_SRC)/%.ml
-	$(info OCAMLC $<)
-	@$(OCAMLC) -c -for-pack Dynlink_compilerlibs $(COMPFLAGS) \
+	$(V_OCAMLC)$(OCAMLC) -c -for-pack Dynlink_compilerlibs $(COMPFLAGS) \
           -I $(LOCAL_SRC) -o $@ $(LOCAL_SRC)/$*.ml
 
 $(LOCAL_SRC)/%.cmx: $(LOCAL_SRC)/%.ml
-	$(info OCAMLOPT $<)
-	@$(OCAMLOPT) -c -for-pack Dynlink_compilerlibs $(COMPFLAGS) \
+	$(V_OCAMLOPT)$(OCAMLOPT) -c -for-pack Dynlink_compilerlibs $(COMPFLAGS) \
           $(OPTCOMPFLAGS) -I $(LOCAL_SRC) -o $@ $(LOCAL_SRC)/$*.ml
 
 # Rules for building the [Dynlink_compilerlibs] bytecode and native packs
@@ -299,13 +296,10 @@ depend: beforedepend
 include .depend
 
 %.cmi: %.mli
-	$(info OCAMLC $<)
-	@$(OCAMLC) -c $(COMPFLAGS) $<
+	$(V_OCAMLC)$(OCAMLC) -c $(COMPFLAGS) $<
 
 %.cmo: %.ml
-	$(info OCAMLC $<)
-	@$(OCAMLC) -c $(COMPFLAGS) $<
+	$(V_OCAMLC)$(OCAMLC) -c $(COMPFLAGS) $<
 
 %.cmx: %.ml
-	$(info OCAMLOPT $<)
-	@$(OCAMLOPT) -c $(COMPFLAGS) $(OPTCOMPFLAGS) $<
+	$(V_OCAMLOPT)$(OCAMLOPT) -c $(COMPFLAGS) $(OPTCOMPFLAGS) $<

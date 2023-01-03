@@ -932,8 +932,7 @@ ifneq "$(1)" "%"
 # instead include $(runtime_BUILT_HEADERS) in the order only dependencies
 # to ensure that they exist before dependencies are computed.
 $(DEPDIR)/$(1).$(D): runtime/%.c | $(DEPDIR)/runtime $(runtime_BUILT_HEADERS)
-	$$(info CCDEPS $$< -> $$@)
-	@$$(DEP_CC) $$(OC_CPPFLAGS) $$(CPPFLAGS) $$< -MT \
+	$$(V_CCDEPS)$$(DEP_CC) $$(OC_CPPFLAGS) $$(CPPFLAGS) $$< -MT \
 	  'runtime/$$*$(subst runtime/%,,$(1)).$(O)' -MF $$@
 endif # ifneq "$(1)" "%"
 $(1).$(O): $(2).c
@@ -942,8 +941,7 @@ $(1).$(O): $(2).c \
   $(runtime_CONFIGURED_HEADERS) $(runtime_BUILT_HEADERS) \
   $(RUNTIME_HEADERS)
 endif # ifeq "$(COMPUTE_DEPS)" "true"
-	$$(info CC $$< -> $$@)
-	@$$(CC) -c $$(OC_CFLAGS) $$(CFLAGS) $$(OC_CPPFLAGS) $$(CPPFLAGS) \
+	$$(V_CC)$$(CC) -c $$(OC_CFLAGS) $$(CFLAGS) $$(OC_CPPFLAGS) $$(CPPFLAGS) \
 	  $$(OUTPUTOBJ)$$@ $$<
 endef
 
@@ -1543,16 +1541,13 @@ endif
 # Default rules
 
 %.cmo: %.ml
-	$(info OCAMLC $<)
-	@$(CAMLC) $(OC_COMMON_CFLAGS) -I $(@D) $(INCLUDES) -c $<
+	$(V_OCAMLC)$(CAMLC) $(OC_COMMON_CFLAGS) -I $(@D) $(INCLUDES) -c $<
 
 %.cmi: %.mli
-	$(info OCAMLC $<)
-	@$(CAMLC) $(OC_COMMON_CFLAGS) -I $(@D) $(INCLUDES) -c $<
+	$(V_OCAMLC)$(CAMLC) $(OC_COMMON_CFLAGS) -I $(@D) $(INCLUDES) -c $<
 
 %.cmx: %.ml
-	$(info OCAMLOPT $<)
-	@$(COMPILE_NATIVE_MODULE) -c $<
+	$(V_OCAMLOPT)$(COMPILE_NATIVE_MODULE) -c $<
 
 partialclean::
 	for d in utils parsing typing bytecomp asmcomp middle_end file_formats \
