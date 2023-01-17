@@ -34,7 +34,6 @@
 
 /* Stack layout */
 #define RESERVED_STACK 32
-#define PARAM_SAVE_AREA 0
 #define LR_SAVE 16
 #define TOC_SAVE_PARENT 8
 #define TOC_SAVE 24
@@ -112,8 +111,7 @@
 /* Switch from C stack to OCaml stack */
 
 .macro SWITCH_C_TO_OCAML
-       ld      TMP, Cstack_sp(SP)
-       mr      SP, TMP
+       ld      SP, Cstack_sp(SP)
 .endm
 
 /* Save ALLOC_PTR and TRAP_PTR to domain state, and save
@@ -324,20 +322,21 @@ FUNCTION(caml_c_call_stack_args)
    /* Make the exception handler and alloc ptr available to the C code */
         std     ALLOC_PTR, Caml_state(young_ptr)
         std     TRAP_PTR, Caml_state(exception_pointer)
-   /* Set up a C stack frame that mimicks the frame on the OCaml stack.
-          arguments passed on stack
-          reserved space for arguments passed in registers
-          32 bytes of standard reserved space */
+   /* Set up a C stack frame that mimicks the frame on the OCaml stack:
+      - arguments passed on stack
+      - reserved space for arguments passed in registers. */
         addi    0, STACK_ARG_END, 8
         andi.   0, 0, -16    /* align to 16 */
         subfc   SP, 0, SP    /* allocate stack frame */
         /* Copy from original SP + [STACK_ARG_BEGIN...STACK_ARG_END)
            to new SP + [STACK_ARG_BEGIN...STACK_ARG_END) */
 1:      ldx     0, C_CALL_TMP, STACK_ARG_BEGIN        
-        stdx    0, SP, STACK_ARG_END
+        stdx    0, SP, STACK_ARG_BEGIN
         addi    STACK_ARG_BEGIN, STACK_ARG_BEGIN, 8
         cmpd    STACK_ARG_BEGIN, STACK_ARG_END
+        bne     1b
     /* Call C function (address in C_CALL_FUN) */
+        addi    SP, SP, -RESERVED_STACK
         mtctr   C_CALL_FUN
         mr      12, C_CALL_FUN
         mr      C_CALL_TOC, 2   /* save current TOC in a callee-save register */
@@ -353,20 +352,19 @@ FUNCTION(caml_c_call_stack_args)
         blr
 ENDFUNCTION(caml_c_call_stack_args)
 
-
 /* Raise an exception from OCaml */
 
 FUNCTION(caml_raise_exn)
         ld      0, Caml_state(backtrace_active)
-        cmpwi   0, 0
+        cmpdi   0, 0
         bne     .L111
 .L110:
     /* Pop trap frame */
         ld      0, TRAP_HANDLER_OFFSET(TRAP_PTR)
-        mr      1, TRAP_PTR
+        mr      SP, TRAP_PTR
         mtctr   0
         ld      TRAP_PTR, TRAP_PREVIOUS_OFFSET(1)
-        addi    1, 1, TRAP_SIZE
+        addi    SP, SP, TRAP_SIZE
     /* Branch to handler */
         bctr
 .L111:
@@ -375,7 +373,7 @@ FUNCTION(caml_raise_exn)
         mflr    4               /* arg2: PC of raise */
         mr      5, 1            /* arg3: SP of raise */
         mr      6, TRAP_PTR     /* arg4: SP of handler */
-        addi    1, 1, -(PARAM_SAVE_AREA + RESERVED_STACK)
+        addi    1, 1, -RESERVED_STACK
                                 /* reserve stack space for C call */
         bl      caml_stash_backtrace
         nop
@@ -386,175 +384,173 @@ ENDFUNCTION(caml_raise_exn)
 /* Raise an exception from C */
 
 FUNCTION(caml_raise_exception)
-    /* Load domain state pointer */
+    /* Reinitialize domain state pointer */
         mr      DOMAIN_STATE_PTR, 3
+    /* Move exn bucket where caml_raise_exn expects it */
         mr      3, 4
-        ld      0, Caml_state(backtrace_active)
-        cmpwi   0, 0
-        bne     .L121
-.L120:
-    /* Reload OCaml global registers */
-        ld      1, Caml_state(exception_pointer)
+    /* Reload allocation pointer and exception pointer */
         ld      ALLOC_PTR, Caml_state(young_ptr)
-    /* Pop trap frame */
-        ld      0, TRAP_HANDLER_OFFSET(1)
-        mtctr   0
-        ld      TRAP_PTR, TRAP_PREVIOUS_OFFSET(1)
-        addi    1, 1, TRAP_SIZE
-    /* Branch to handler */
-        bctr
-.L121:
-        mr      27, 3           /* preserve exn bucket in callee-save reg */
-                                /* arg1: exception bucket, already in r3 */
-        ld      4, Caml_state(last_return_address) /* arg2: PC of raise */
-        ld      5, Caml_state(bottom_of_stack)     /* arg3: SP of raise */
-        ld      6, Caml_state(exception_pointer)   /* arg4: SP of handler */
-        addi    1, 1, -(PARAM_SAVE_AREA + RESERVED_STACK)
-                                         /* reserve stack space for C call */
-        bl      caml_stash_backtrace
-        nop
-        mr      3, 27           /* restore exn bucket */
-        b       .L120           /* raise the exn */
+        ld      TRAP_PTR, Caml_state(exception_pointer)
+    /* Discard the C stack pointer and switch to OCaml stack */
+        ld      TMP, Caml_state(current_stack)
+        ld      SP, Stack_sp(TMP)
+    /* Reload return address from caller's frame (for the backtrace) */
+        ld      0, LR_SAVE(SP)
+        mtlr    0
+    /* Raise the exception */
+        b       caml_raise_exn
 ENDFUNCTION(caml_raise_exception)
 
 /* Start the OCaml program */
 
 FUNCTION(caml_start_program)
-        .cfi_startproc
-#define STACKSIZE (8*18 + 8*18 + CALLBACK_LINK_SIZE + RESERVED_STACK)
-  /* 18 callee-save GPR14...GPR31 + 18 callee-save FPR14...FPR31 */
   /* Domain state pointer is the first arg to caml_start_program. Move it */
         mr      START_PRG_DOMAIN_STATE_PTR, 3
+  /* Code to call is caml_program */
         Addrglobal(START_PRG_ARG, caml_program)
+
 /* Code shared between caml_start_program and caml_callback */
+/* Domain state pointer is in START_PRG_DOMAIN_STATE_PTR */
+/* Code to call is in START_PRG_ARG */
 .L102:
+    /* Stack frame contains:
+       - 18 callee-save FPRs
+       - 18 callee-save GPRs
+       - a struct c_stack_link
+       - the standard reserved space */
+#define STACKSIZE (18 * 8 + 18 * 8 + CALLBACK_LINK_SIZE + RESERVED_STACK)
     /* Allocate and link stack frame */
         stdu    1, -STACKSIZE(1)
-        .cfi_adjust_cfa_offset STACKSIZE
-    /* Save return address */
+    /* Save return address and TOP pointer */
         mflr    0
         std     0, (STACKSIZE + LR_SAVE)(1)
-        .cfi_offset 65, LR_SAVE
-    /* Save TOC pointer */
         std     2, (STACKSIZE + TOC_SAVE_PARENT)(1)
     /* Save all callee-save registers */
-        addi    11, 1, CALLBACK_LINK_SIZE + RESERVED_STACK - 8
-        stdu    14, 8(11)
-        stdu    15, 8(11)
-        stdu    16, 8(11)
-        stdu    17, 8(11)
-        stdu    18, 8(11)
-        stdu    19, 8(11)
-        stdu    20, 8(11)
-        stdu    21, 8(11)
-        stdu    22, 8(11)
-        stdu    23, 8(11)
-        stdu    24, 8(11)
-        stdu    25, 8(11)
-        stdu    26, 8(11)
-        stdu    27, 8(11)
-        stdu    28, 8(11)
-        stdu    29, 8(11)
-        stdu    30, 8(11)
-        stdu    31, 8(11)
-        stfdu   14, 8(11)
-        stfdu   15, 8(11)
-        stfdu   16, 8(11)
-        stfdu   17, 8(11)
-        stfdu   18, 8(11)
-        stfdu   19, 8(11)
-        stfdu   20, 8(11)
-        stfdu   21, 8(11)
-        stfdu   22, 8(11)
-        stfdu   23, 8(11)
-        stfdu   24, 8(11)
-        stfdu   25, 8(11)
-        stfdu   26, 8(11)
-        stfdu   27, 8(11)
-        stfdu   28, 8(11)
-        stfdu   29, 8(11)
-        stfdu   30, 8(11)
-        stfdu   31, 8(11)
+        addi    TMP, 1, CALLBACK_LINK_SIZE + RESERVED_STACK - 8
+        stdu    14, 8(TMP)
+        stdu    15, 8(TMP)
+        stdu    16, 8(TMP)
+        stdu    17, 8(TMP)
+        stdu    18, 8(TMP)
+        stdu    19, 8(TMP)
+        stdu    20, 8(TMP)
+        stdu    21, 8(TMP)
+        stdu    22, 8(TMP)
+        stdu    23, 8(TMP)
+        stdu    24, 8(TMP)
+        stdu    25, 8(TMP)
+        stdu    26, 8(TMP)
+        stdu    27, 8(TMP)
+        stdu    28, 8(TMP)
+        stdu    29, 8(TMP)
+        stdu    30, 8(TMP)
+        stdu    31, 8(TMP)
+        stfdu   14, 8(TMP)
+        stfdu   15, 8(TMP)
+        stfdu   16, 8(TMP)
+        stfdu   17, 8(TMP)
+        stfdu   18, 8(TMP)
+        stfdu   19, 8(TMP)
+        stfdu   20, 8(TMP)
+        stfdu   21, 8(TMP)
+        stfdu   22, 8(TMP)
+        stfdu   23, 8(TMP)
+        stfdu   24, 8(TMP)
+        stfdu   25, 8(TMP)
+        stfdu   26, 8(TMP)
+        stfdu   27, 8(TMP)
+        stfdu   28, 8(TMP)
+        stfdu   29, 8(TMP)
+        stfdu   30, 8(TMP)
+        stfdu   31, 8(TMP)
     /* Load domain state pointer from argument */
         mr      DOMAIN_STATE_PTR, START_PRG_DOMAIN_STATE_PTR
-    /* Set up a callback link */
-        ld      11, Caml_state(bottom_of_stack)
-        std     11, CALLBACK_LINK_OFFSET(1)
-        ld      11, Caml_state(last_return_address)
-        std     11, (CALLBACK_LINK_OFFSET + 8)(1)
-        ld      11, Caml_state(gc_regs)
-        std     11, (CALLBACK_LINK_OFFSET + 2 * 8)(1)
-    /* Build an exception handler to catch exceptions escaping out of OCaml */
-        bl      .L103
-        b       .L104
-.L103:
-        addi    1, 1, -TRAP_SIZE
-        .cfi_adjust_cfa_offset TRAP_SIZE
-        mflr    0
-        std     0, TRAP_HANDLER_OFFSET(1)
-        ld      11, Caml_state(exception_pointer)
-        std     11, TRAP_PREVIOUS_OFFSET(1)
-        mr      TRAP_PTR, 1
     /* Reload allocation pointer */
         ld      ALLOC_PTR, Caml_state(young_ptr)
-    /* Call the OCaml code (address in r12) */
-        mtctr   12
-        std     2, TOC_SAVE(1)
+    /* Set up a struct c_stack_link on the C stack */
+        addi    TMP, SP, RESERVED_STACK  /* pointer to the struct */
+        ld      0, Caml_state(c_stack)
+        std     0, Cstack_prev(TMP)
+        std     TMP, Caml_state(c_stack)
+    /* Load the OCaml stack */
+        ld      TMP, Caml_state(current_stack)
+        ld      TMP, Stack_sp(TMP)
+    /* Store the gc_regs for callbacks during a GC */
+        ld      0, Caml_state(gc_regs)
+        stdu    0, -8(TMP)
+    /* Store the stack pointer to allow DWARF unwind */
+        stdu    SP, -8(TMP)
+    /* Setup a trap frame to catch exceptions escaping the OCaml code */
+    /* Also reserve the obligatory 32 bytes at bottom of OCaml stack */
+        addi    TMP, TMP, -(TRAP_SIZE + RESERVED_SIZE)
+        ld      0, Caml_state(exn_handler)
+        std     0, TRAP_PREVIOUS_OFFSET(TMP)
+        Addrglobal(0, .L104)
+        std     0, TRAP_HANDLER_OFFSET(TMP)
+    /* Switch stacks */
+        mr      SP, TMP
+    /* Call the OCaml code (address in START_PRG_ARG) */
+        mtctr   START_PRG_ARG
+        std     2, TOC_SAVE(SP)
 .L105:  bctrl
-        ld      2, TOC_SAVE(1)
+        ld      2, TOC_SAVE(SP)
     /* Pop the trap frame, restoring caml_exception_pointer */
-        ld      0, TRAP_PREVIOUS_OFFSET(1)
+        ld      0, TRAP_PREVIOUS_OFFSET(SP)
         std     0, Caml_state(exception_pointer)
         addi    1, 1, TRAP_SIZE
-        .cfi_adjust_cfa_offset -TRAP_SIZE
-    /* Pop the callback link, restoring the global variables */
-.L106:
-        ld      0, CALLBACK_LINK_OFFSET(1)
-        std     0, Caml_state(bottom_of_stack)
-        ld      0, (CALLBACK_LINK_OFFSET + 8)(1)
-        std     0, Caml_state(last_return_address)
-        ld      0, (CALLBACK_LINK_OFFSET + 2 * 8)(1)
-        std     0, Caml_state(gc_regs)
     /* Update allocation pointer */
+.L106:
         std     ALLOC_PTR, Caml_state(young_ptr)
+    /* Restore GC regs */
+        ld      0, 8(SP)
+        std     0, Caml_state(gc_regs)
+        addi    SP, SP, 16
+    /* Return to C stack */
+        ld      TMP, Caml_state(current_stack)
+        std     SP, Stack_sp(TMP)
+        ld      SP, Caml_state(c_stack)
+    /* Pop the struct c_stack_link */
+        addi    TMP, SP, RESERVED_STACK  /* pointer to the struct */
+        ld      0, Cstack_prev(TMP)
+        std     0, Caml_state(c_stack)
     /* Restore callee-save registers */
-        addi    11, 1, CALLBACK_LINK_SIZE + RESERVED_STACK - 8
-        ldu     14, 8(11)
-        ldu     15, 8(11)
-        ldu     16, 8(11)
-        ldu     17, 8(11)
-        ldu     18, 8(11)
-        ldu     19, 8(11)
-        ldu     20, 8(11)
-        ldu     21, 8(11)
-        ldu     22, 8(11)
-        ldu     23, 8(11)
-        ldu     24, 8(11)
-        ldu     25, 8(11)
-        ldu     26, 8(11)
-        ldu     27, 8(11)
-        ldu     28, 8(11)
-        ldu     29, 8(11)
-        ldu     30, 8(11)
-        ldu     31, 8(11)
-        lfdu    14, 8(11)
-        lfdu    15, 8(11)
-        lfdu    16, 8(11)
-        lfdu    17, 8(11)
-        lfdu    18, 8(11)
-        lfdu    19, 8(11)
-        lfdu    20, 8(11)
-        lfdu    21, 8(11)
-        lfdu    22, 8(11)
-        lfdu    23, 8(11)
-        lfdu    24, 8(11)
-        lfdu    25, 8(11)
-        lfdu    26, 8(11)
-        lfdu    27, 8(11)
-        lfdu    28, 8(11)
-        lfdu    29, 8(11)
-        lfdu    30, 8(11)
-        lfdu    31, 8(11)
+        addi    TMP, SP, CALLBACK_LINK_SIZE + RESERVED_STACK - 8
+        ldu     14, 8(TMP)
+        ldu     15, 8(TMP)
+        ldu     16, 8(TMP)
+        ldu     17, 8(TMP)
+        ldu     18, 8(TMP)
+        ldu     19, 8(TMP)
+        ldu     20, 8(TMP)
+        ldu     21, 8(TMP)
+        ldu     22, 8(TMP)
+        ldu     23, 8(TMP)
+        ldu     24, 8(TMP)
+        ldu     25, 8(TMP)
+        ldu     26, 8(TMP)
+        ldu     27, 8(TMP)
+        ldu     28, 8(TMP)
+        ldu     29, 8(TMP)
+        ldu     30, 8(TMP)
+        ldu     31, 8(TMP)
+        lfdu    14, 8(TMP)
+        lfdu    15, 8(TMP)
+        lfdu    16, 8(TMP)
+        lfdu    17, 8(TMP)
+        lfdu    18, 8(TMP)
+        lfdu    19, 8(TMP)
+        lfdu    20, 8(TMP)
+        lfdu    21, 8(TMP)
+        lfdu    22, 8(TMP)
+        lfdu    23, 8(TMP)
+        lfdu    24, 8(TMP)
+        lfdu    25, 8(TMP)
+        lfdu    26, 8(TMP)
+        lfdu    27, 8(TMP)
+        lfdu    28, 8(TMP)
+        lfdu    29, 8(TMP)
+        lfdu    30, 8(TMP)
+        lfdu    31, 8(TMP)
     /* Reload return address */
         ld      0, (STACKSIZE + LR_SAVE)(1)
         mtlr    0
