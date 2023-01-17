@@ -637,15 +637,30 @@ let emit_instr env i =
           emit_free_frame env;
           `	bctr\n`
         end
-    | Lop(Iextcall { func; alloc; }) ->
-        if not alloc then begin
-          emit_call func;
-          emit_call_nop()
-        end else begin
+    | Lop(Iextcall { func; alloc; stack_ofs }) ->
+        if stack_ofs > 32 then begin
+          emit_tocload emit_gpr 25 (TocSym func);
+          `	addi	23, 1, 32\n`; (* stack arg begin *)
+          `	addi	24, 1, {emit_int stack_ofs}\n`; (* stack arg end *)
+          emit_call "caml_c_call_stack_arg";
+          record_frame env i.live (Dbg_other i.dbg);
+          `	nop\n`
+        end else if alloc then begin
           emit_tocload emit_gpr 25 (TocSym func);
           emit_call "caml_c_call";
           record_frame env i.live (Dbg_other i.dbg);
           `	nop\n`
+        end else
+          (* Save OCaml stack pointer in a callee-save register *)
+          `	mr	28, 1\n`;
+          (* Switch to C stack *)
+          let offset = Domainstate.(idx_of_field Domain_c_stack) * 8 in
+          `	ld	1, {emit_int offset}(30)\n`;
+          `	addi	1, 1, -32\n`;  (* TO CHECK *)
+          emit_call func;
+          emit_call_nop();
+          (* Switch back to OCaml stack *)
+          `	mr	1, 28\n'
         end
     | Lop(Istackoffset n) ->
         `	addi	1, 1, {emit_int (-n)}\n`;
