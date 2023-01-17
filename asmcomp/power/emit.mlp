@@ -49,7 +49,7 @@ let slot_offset env loc cls =
                   else n * size_float)
   | Incoming n ->
     (* Callee's [reserved_stack_space] is included in [frame_size].
-       To access incoming arguments, add caller's [reserverd_stack_space]. *)
+       To access incoming arguments, add caller's [reserved_stack_space]. *)
       frame_size env + reserved_stack_space + n
   | Outgoing n -> reserved_stack_space + n
   | Domainstate _ -> assert false  (* not a stack slot *)
@@ -638,10 +638,12 @@ let emit_instr env i =
           `	bctr\n`
         end
     | Lop(Iextcall { func; alloc; stack_ofs }) ->
-        if stack_ofs > 32 then begin
+        if stack_ofs > 0 then begin
           emit_tocload emit_gpr 25 (TocSym func);
-          `	addi	23, 1, 32\n`; (* stack arg begin *)
-          `	addi	24, 1, {emit_int stack_ofs}\n`; (* stack arg end *)
+          `	addi	23, 1, {emit_int reserved_stack_space}\n`;
+                                         (* stack arg begin *)
+          `	addi	24, 1, {emit_int (reserved_stack_space + stack_ofs)}\n`;
+                                         (* stack arg end *)
           emit_call "caml_c_call_stack_arg";
           record_frame env i.live (Dbg_other i.dbg);
           `	nop\n`
@@ -650,7 +652,7 @@ let emit_instr env i =
           emit_call "caml_c_call";
           record_frame env i.live (Dbg_other i.dbg);
           `	nop\n`
-        end else
+        end else begin
           (* Save OCaml stack pointer in a callee-save register *)
           `	mr	28, 1\n`;
           (* Switch to C stack *)
