@@ -110,33 +110,14 @@ let loc_float last_float make_stack reg_use_stack int float ofs =
   if !float <= last_float then begin
     let l = phys_reg !float in
     incr float;
-    (* On 64-bit platforms, passing a float in a float register
-       reserves a normal register as well *)
-    if size_int = 8 then incr int;
+    (* Passing a float in a float register reserves a normal register as well *)
+    incr int;
     if reg_use_stack then ofs := !ofs + size_float;
     l
   end else begin
     ofs := Misc.align !ofs size_float;
     let l = stack_slot (make_stack !ofs) Float in
     ofs := !ofs + size_float; l
-  end
-
-let loc_int_pair last_int make_stack int ofs =
-  (* 64-bit quantities split across two registers must either be in a
-     consecutive pair of registers where the lowest numbered is an
-     even-numbered register; or in a stack slot that is 8-byte aligned. *)
-  int := Misc.align !int 2;
-  if !int <= last_int - 1 then begin
-    let reg_lower = phys_reg !int in
-    let reg_upper = phys_reg (1 + !int) in
-    int := !int + 2;
-    [| reg_lower; reg_upper |]
-  end else begin
-    ofs := Misc.align !ofs 8;
-    let stack_lower = stack_slot (make_stack !ofs) Int in
-    let stack_upper = stack_slot (make_stack (size_int + !ofs)) Int in
-    ofs := !ofs + 8;
-    [| stack_lower; stack_upper |]
   end
 
 let calling_conventions first_int last_int first_float last_float
@@ -199,16 +180,9 @@ let external_calling_conventions
   List.iteri
     (fun i ty_arg ->
       match ty_arg with
-      | XInt | XInt32 ->
+      | XInt | XInt32 | XInt64 ->
         loc.(i) <-
           [| loc_int last_int make_stack reg_use_stack int ofs |]
-      | XInt64 ->
-          if size_int = 4 then begin
-            assert (not reg_use_stack);
-            loc.(i) <- loc_int_pair last_int make_stack int ofs
-          end else
-            loc.(i) <-
-              [| loc_int last_int make_stack reg_use_stack int ofs |]
       | XFloat ->
         loc.(i) <-
           [| loc_float last_float make_stack reg_use_stack int float ofs |])
@@ -218,13 +192,11 @@ let external_calling_conventions
 let loc_external_arguments ty_args =
   let (loc, ofs) =
     external_calling_conventions 0 7 100 112 outgoing 0 true ty_args in
-  if Array.fold_left
-       (fun stk r ->
+  if Array.exists
+       (fun r ->
           assert (Array.length r = 1);
-          match r.(0).loc with
-          | Stack _ -> true
-          | _ -> stk)
-       false loc
+          match r.(0).loc with Stack _ -> true | _ -> false)
+       loc
   then (loc, ofs)
   else (loc, 0)
 
