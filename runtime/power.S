@@ -94,6 +94,19 @@
 
 #define Caml_state(var) 8*domain_field_caml_##var(DOMAIN_STATE_PTR)
 
+/* Call or tail-call function F defined in another compilation unit */
+
+.macro FAR_CALL fn
+       bl      \fn
+       nop              /* linker can insert TOC reload there */
+.endmacro
+
+.macro FAR_TAILCALL fn
+       Addrglobal(12, fn)  /* Address of function must be in r12 */
+       mtctr   12
+       bctr
+.endmacro
+
 /* Switch from OCaml stack to C stack */
 
 .macro SWITCH_OCAML_TO_C
@@ -243,7 +256,7 @@ FUNCTION(caml_call_realloc_stack)
    /* Switch stacks and call caml_try_realloc_stack */
         SWITCH_OCAML_TO_C
         addi    SP, SP, -RESERVED_STACK
-        bl      caml_try_realloc_stack
+        FAR_CALL caml_try_realloc_stack
         SWITCH_C_TO_OCAML
         cmpdi   3, 0
    /* Restore all registers, and also return address and TOC register */
@@ -272,7 +285,7 @@ FUNCTION(caml_call_gc)
    /* Switch stacks and call caml_garbage_collection */
         SWITCH_OCAML_TO_C
         addi    SP, SP, -RESERVED_STACK
-        bl      caml_garbage_collection
+        FAR_CALL caml_garbage_collection
         SWITCH_C_TO_OCAML
    /* Restore registers and return to caller */
         RESTORE_ALL_REGS
@@ -375,8 +388,7 @@ FUNCTION(caml_raise_exn)
         mr      6, TRAP_PTR     /* arg4: SP of handler */
         addi    1, 1, -RESERVED_STACK
                                 /* reserve stack space for C call */
-        bl      caml_stash_backtrace
-        nop
+        FAR_CALL caml_stash_backtrace
         mr      3, 27           /* restore exn bucket */
         b       .L110           /* raise the exn */
 ENDFUNCTION(caml_raise_exn)
@@ -606,6 +618,204 @@ FUNCTION(caml_callback3_asm)
         Addrglobal(START_PRG_ARG, caml_apply3)
         b       .L102
 ENDFUNCTION(caml_callback3_asm)
+
+/* Fibers */
+
+/* Switch between OCaml stacks. Clobbers register 0 and switches TRAP_PTR.
+   Preserves old_stack and new_stack registers */
+.macro SWITCH_OCAML_STACKS old_stack, new_stack
+    /* Save return address for old_stack */
+        mflr    0
+        std     0, LR_SAVE(SP)
+    /* Save OCaml SP and exn_handler in the stack info */
+        std     SP, Stack_sp(\old_stack)
+        std     TRAP_PTR, Stack_exception(\old_stack)
+    /* switch stacks */
+        std     \new_stack, Caml_state(current_stack)
+        ld      SP, Stack_sp(\new_stack)
+    /* restore exn_handler for new stack */
+        ld      TRAP_PTR, Stack_exception(\new_stack)
+    /* Restore return address for new_stack */
+        ld      0, LR_SAVE(SP)
+        mtlr    0
+.endm
+
+/*
+ * A continuation is a one word object that points to a fiber. A fiber [f] will
+ * point to its parent at Handler_parent(Stack_handler(f)). In the following,
+ * the [last_fiber] refers to the last fiber in the linked-list formed by the
+ * parent pointer.
+ */
+
+FUNCTION(caml_perform)
+  /* r3: effect to perform
+     r4: freshly allocated continuation */
+
+        ld      5, Caml_state(current_stack) /* r5 := old stack */
+        addi    6, 5, 1  /* r6 := Val_ptr(old stack) */
+        std     5, 0(4)  /* Initialize continuation */
+.Ldo_perform:
+  /* r3: effect to perform
+     r4: continuation
+     r5: old_stack
+     r6: last_fiber */
+
+        ld      7, Stack_handler(5)  /* r7 := old stack -> handler */
+        ld      8, Handler_parent(7) /* r8 := parent stack */
+        cmpdi   8, 0
+        beq     1f
+        SWITCH_OCAML_STACKS 5, 8
+  /* We have to null the Handler_parent after the switch because
+     the Handler_parent is needed to unwind the stack for backtraces */
+        li      0, 0
+        std     0, Handler_parent(7) /* Set parent of performer to NULL */
+        ld      0, Handler_effect(7)
+                                     /* 1st argument: effect to perform */
+                                     /* 2nd argument: continuation */
+        mr      5, 6                 /* 3rd argument: last_fiber */
+        mr      6, 0                 /* 4th argument: effect handler */
+        TAILCALL_FAR caml_apply3
+        mtctr   12
+        bctr
+1:
+  /* Switch back to original performer before raising Effect.Unhandled
+     (no-op unless this is a reperform) */
+        ld      10, 0(4) /* r10 := performer stack (loaded from continuation) */
+        addi    10, 10, -1 /* r10 := Ptr_val(r10) */
+        ld      9, Caml_state(current_stack)
+        SWITCH_OCAML_STACKS 9, 10
+  /* No parent stack. Raise Effect.Unhandled. */
+        ADDRGLOBAL(ADDITIONAL_ARG, caml_raise_unhandled_effect)
+        b       caml_c_call
+        CFI_ENDPROC
+        END_FUNCTION(caml_perform)
+
+FUNCTION(caml_reperform)
+        CFI_STARTPROC
+  /* r3: effect to perform
+     r4: continuation
+     r5: last_fiber */
+        ld      TMP, Stack_handler_from_cont(5)
+        ld      5, Caml_state(current_stack) /* r5 := old stack */
+        std     5, Handler_parent(TMP) /* Append to last_fiber */
+        addi    6, 5, 1 /* r6 (last_fiber) := Val_ptr(old stack) */
+        b       .Ldo_perform
+        CFI_ENDPROC
+        END_FUNCTION(caml_reperform)
+
+FUNCTION(caml_resume)
+CFI_STARTPROC
+  /* r3: new fiber
+     r4: fun
+     r5: arg */
+        addi    3, 3, -1 /* r3 = Ptr_val(r3) */
+        ld      12, 0(4) /* code pointer */
+    /* Check if stack is null, then already used */
+        cmpdi   3, 0
+        beq     2f
+    /* Find end of list of stacks (put in r7) */
+        mr      TMP, 3
+1:      ld      7, Stack_handler(TMP)
+        ld      TMP, Handler_parent(7)
+        cmpdi   TMP, 0
+        bne     1b
+    /* Add current stack to the end */
+        ld      8, Caml_state(current_stack)
+        std     8, Handler_parent(7)
+    /* Switch stacks and run code */
+        SWITCH_OCAML_STACKS 8, 3
+        mtctr   12
+        mr      3, 5
+        bctr
+2:      ADDRGLOBAL(ADDITIONAL_ARG, caml_raise_continuation_already_resumed)
+        b       caml_c_call
+        CFI_ENDPROC
+        END_FUNCTION(caml_resume)
+
+/* Run a function on a new stack, then either
+   return the value or invoke exception handler */
+FUNCTION(caml_runstack)
+CFI_STARTPROC
+  /* r3: fiber
+     r4: fun
+     r5: arg */
+        stp     x29, x30, [sp, -16]!
+        CFI_ADJUST(16)
+        add     x29, sp, #0
+        sub     x0, x0, 1  /* x0 := Ptr_val(x0) */
+        ldr     x3, [x1]   /* code pointer */
+    /*  save old stack pointer and exception handler */
+        ldr     x8, Caml_state(current_stack) /* x8 := old stack */
+        mov     TMP, sp
+        str     TMP, Stack_sp(x8)
+        str     TRAP_PTR, Stack_exception(x8)
+    /* Load new stack pointer and set parent */
+        ldr     TMP, Stack_handler(x0)
+        str     x8, Handler_parent(TMP)
+        str     x0, Caml_state(current_stack)
+        ldr     x9, Stack_sp(x0) /* x9 := sp of new stack */
+    /* Create an exception handler on the target stack
+       after 16byte DWARF & gc_regs block (which is unused here) */
+        sub     x9, x9, 32
+        adr     TMP, L(fiber_exn_handler)
+        str     TMP, [x9, 8]
+    /* link the previous exn_handler so that copying stacks works */
+        ldr     TMP, Stack_exception(x0)
+        str     TMP, [x9]
+        mov     TRAP_PTR, x9
+    /* Switch to the new stack */
+        mov     sp, x9
+#ifdef ASM_CFI_SUPPORTED
+        CFI_REMEMBER_STATE
+        .cfi_escape DW_CFA_def_cfa_expression, 3+3+2,       \
+          DW_OP_breg + DW_REG_sp,                           \
+            16 /* exn */ +                                  \
+            8 /* gc_regs slot (unused) */ +                 \
+            8 /* C_STACK_SP for DWARF (unused) */           \
+            + Handler_parent_offset, DW_OP_deref,           \
+          DW_OP_plus_uconst, Stack_sp_offset, DW_OP_deref,  \
+          DW_OP_plus_uconst, 16 /* fp + ret addr */
+#endif
+    /* Call the function on the new stack */
+        mov     x0, x2
+        blr     x3
+L(frame_runstack):
+        add     x8, sp, 32 /* x8 := stack_handler */
+        ldr     x19, Handler_value(x8) /* saved across C call */
+1:
+        mov     x20, x0     /* save return across C call */
+        ldr     x0, Caml_state(current_stack) /* arg to caml_free_stack */
+    /* restore parent stack and exn_handler into Caml_state */
+        ldr     TMP, Handler_parent(x8)
+        str     TMP, Caml_state(current_stack)
+        ldr     TRAP_PTR, Stack_exception(TMP)
+        str     TRAP_PTR, Caml_state(exn_handler)
+    /* free old stack by switching directly to c_stack;
+       is a no-alloc call */
+        ldr     x21, Stack_sp(TMP) /* saved across C call */
+        CFI_RESTORE_STATE
+        CFI_REMEMBER_STATE
+        CFI_DEF_CFA_REGISTER(DW_REG_x21)
+        ldr     TMP, Caml_state(c_stack)
+        mov     sp, TMP
+        FAR_CALL caml_free_stack
+    /* switch directly to parent stack with correct return */
+        mov     x0, x20
+        mov     x1, x19
+        mov     sp, x21
+        CFI_RESTORE_STATE
+        ldr     TMP, [x19]  /* code pointer */
+    /* Invoke handle_value (or handle_exn) */
+        ldp     x29, x30, [sp], 16
+        CFI_ADJUST(-16)
+        br      TMP
+L(fiber_exn_handler):
+        add     x8, sp, 16  /* x8 := stack_handler */
+        ldr     x19, Handler_exception(x8)
+        b       1b
+        CFI_ENDPROC
+        END_FUNCTION(caml_runstack)
+
 
         .section ".text"
         .globl  caml_system__code_end
