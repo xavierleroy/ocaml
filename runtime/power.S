@@ -497,7 +497,8 @@ FUNCTION caml_start_program
         addi    TMP, TMP, -(TRAP_SIZE + RESERVED_SIZE)
         ld      0, Caml_state(exn_handler)
         std     0, TRAP_PREVIOUS_OFFSET(TMP)
-        Addrglobal(0, .L104)
+        ld      0, .L104toc@toc(2)
+        mflr    0
         std     0, TRAP_HANDLER_OFFSET(TMP)
     /* Switch stacks */
         mr      SP, TMP
@@ -841,6 +842,8 @@ caml_system__frametable:
 TOCENTRY(caml_apply2)
 TOCENTRY(caml_apply3)
 TOCENTRY(caml_program)
+
+.L104toc: .quad .L104
 
 /* Mark stack as non-executable */
         .section .note.GNU-stack,"",%progbits
