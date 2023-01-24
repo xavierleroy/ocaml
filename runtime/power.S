@@ -17,7 +17,6 @@
 
 /* Special registers */
 #define SP 1
-#define TOC 2
 #define TMP 11
 #define TMP2 12
 #define START_PRG_ARG 12
@@ -65,25 +64,26 @@
 
 /* Function definitions */
 
-#define FUNCTION(name) \
-  .section ".text"; \
-  .globl name; \
-  .type name, @function; \
-  .align 2; \
-  name: ; \
-  0: addis 2, 12, (.TOC. - 0b)@ha; \
-  addi 2, 2, (.TOC. - 0b)@l; \
-  .localentry name, . - 0b
+.macro FUNCTION name
+	.section ".text"
+	.globl \name
+	.type \name, @function
+\name:
+0:      addis	2, 12, .TOC.- 0b@ha
+	addi	2, 2,  .TOC.- 0b@l
+	.localentry \name, . - \name
+.endm
 
-#define ENDFUNCTION(name) \
-  .size name, . - name
+.macro ENDFUNCTION name
+       .size \name, . - \name
+.endm
 
 /* Accessing global variables.  */
 
 #define LSYMB(glob) .L##glob
 
 #define Addrglobal(reg,glob) \
-        ld      reg, LSYMB(glob)@toc(TOC)
+        ld      reg, LSYMB(glob)@toc(2)
 
         .set    domain_curr_field, 0
 #define DOMAIN_STATE(c_type, name) \
@@ -99,13 +99,13 @@
 .macro FAR_CALL fn
        bl      \fn
        nop              /* linker can insert TOC reload there */
-.endmacro
+.endm
 
 .macro FAR_TAILCALL fn
-       Addrglobal(12, fn)  /* Address of function must be in r12 */
+       Addrglobal(12, \fn)  /* Address of function must be in r12 */
        mtctr   12
        bctr
-.endmacro
+.endm
 
 /* Switch from OCaml stack to C stack */
 
@@ -181,12 +181,12 @@
        stfd     14, 0x120(TMP)
     /* Save bucket to gc_regs */
        std      TMP, Caml_state(gc_regs)
-.end
+.endm
 
 /* Undo SAVE_ALL_REGS: load all the registers saved to Caml_state(gc_regs)
    and refresh ALLOC_PTR and TRAP_PTR from Caml_state */
 .macro RESTORE_ALL_REGS
-       ldr      TMP, Caml_state(gc_regs)
+       ld       TMP, Caml_state(gc_regs)
     /* Restore all allocatable integer registers */
        ld       3,  0x000(TMP)
        ld       4,  0x008(TMP)
@@ -234,7 +234,7 @@
     /* Reload new allocation pointer and exception pointer */
        ld       ALLOC_PTR, Caml_state(young_ptr)
        ld       TRAP_PTR, Caml_state(exn_handler)
-.end
+.endm
 
         .section ".text"
         .globl  caml_system__code_begin
@@ -243,7 +243,7 @@ caml_system__code_begin:
 /* Reallocate the stack when it is too small. */
 /* Desired size is passed in register TMP2. */
 
-FUNCTION(caml_call_realloc_stack)
+FUNCTION caml_call_realloc_stack
    /* Allocate the minimal frame that the caller did not allocate yet.
       Save return address there. */
         addi    SP, SP, -RESERVED_SIZE
@@ -272,11 +272,11 @@ FUNCTION(caml_call_realloc_stack)
    /* Reallocation failed: raise the Stack_overflow exception */
 1:      Addrglobal(3, caml_exn_Stack_overflow)
         b       caml_raise_exn        
-ENDFUNCTION(caml_call_realloc_stack)
+ENDFUNCTION caml_call_realloc_stack
 
 /* Invoke the garbage collector. */
 
-FUNCTION(caml_call_gc)
+FUNCTION caml_call_gc
    /* Save return address in caller's frame */
         mflr    0
         std     0, LR_SAVE(SP)
@@ -293,11 +293,11 @@ FUNCTION(caml_call_gc)
         mtlr    0
         ld      TOC, TOC_SAVE(SP)
         blr
-ENDFUNCTION(caml_call_gc)
+ENDFUNCTION caml_call_gc
 
 /* Call a C function from OCaml.  Function to call is in C_CALL_FUN */
 
-FUNCTION(caml_c_call)
+FUNCTION caml_c_call
    /* Save return address in caller's frame AND in a callee-save register */
         mflr    C_CALL_RET_ADDR
         std     C_CALL_RET_ADDR, LR_SAVE(SP)
@@ -321,9 +321,9 @@ FUNCTION(caml_c_call)
         SWITCH_C_TO_OCAML
     /* Return to caller */
         blr
-ENDFUNCTION(caml_c_call)
+ENDFUNCTION caml_c_call
 
-FUNCTION(caml_c_call_stack_args)
+FUNCTION caml_c_call_stack_args
    /* Extra arguments to be passed on stack: 
       at offsets STACK_ARG_BEGIN to STACK_ARG_END from SP */
         mr      C_CALL_TMP, SP
@@ -339,7 +339,7 @@ FUNCTION(caml_c_call_stack_args)
       - arguments passed on stack
       - reserved space for arguments passed in registers. */
         addi    0, STACK_ARG_END, 8
-        andi.   0, 0, -16    /* align to 16 */
+	rldicr  0, 0, 0, 59   /* clear low 4 bits, aligning to 16 */
         subfc   SP, 0, SP    /* allocate stack frame */
         /* Copy from original SP + [STACK_ARG_BEGIN...STACK_ARG_END)
            to new SP + [STACK_ARG_BEGIN...STACK_ARG_END) */
@@ -363,11 +363,11 @@ FUNCTION(caml_c_call_stack_args)
         SWITCH_C_TO_OCAML
     /* Return to caller */
         blr
-ENDFUNCTION(caml_c_call_stack_args)
+ENDFUNCTION caml_c_call_stack_args
 
 /* Raise an exception from OCaml */
 
-FUNCTION(caml_raise_exn)
+FUNCTION caml_raise_exn
         ld      0, Caml_state(backtrace_active)
         cmpdi   0, 0
         bne     .L111
@@ -391,11 +391,11 @@ FUNCTION(caml_raise_exn)
         FAR_CALL caml_stash_backtrace
         mr      3, 27           /* restore exn bucket */
         b       .L110           /* raise the exn */
-ENDFUNCTION(caml_raise_exn)
+ENDFUNCTION caml_raise_exn
 
 /* Raise an exception from C */
 
-FUNCTION(caml_raise_exception)
+FUNCTION caml_raise_exception
     /* Reinitialize domain state pointer */
         mr      DOMAIN_STATE_PTR, 3
     /* Move exn bucket where caml_raise_exn expects it */
@@ -411,11 +411,11 @@ FUNCTION(caml_raise_exception)
         mtlr    0
     /* Raise the exception */
         b       caml_raise_exn
-ENDFUNCTION(caml_raise_exception)
+ENDFUNCTION caml_raise_exception
 
 /* Start the OCaml program */
 
-FUNCTION(caml_start_program)
+FUNCTION caml_start_program
   /* Domain state pointer is the first arg to caml_start_program. Move it */
         mr      START_PRG_DOMAIN_STATE_PTR, 3
   /* Code to call is caml_program */
@@ -581,11 +581,11 @@ FUNCTION(caml_start_program)
         b       .L106
 #undef STACKSIZE
         .cfi_endproc
-ENDFUNCTION(caml_start_program)
+ENDFUNCTION caml_start_program
 
 /* Callback from C to OCaml */
 
-FUNCTION(caml_callback_asm)
+FUNCTION caml_callback_asm
     /* Initial shuffling of arguments */
     /* r3 = Caml_state, r4 = closure, 0(r5) = first arg */
         mr      START_PRG_DOMAIN_STATE_PTR, 3
@@ -593,9 +593,9 @@ FUNCTION(caml_callback_asm)
                                     /* r4 = Closure */
         ld      START_PRG_ARG, 0(4) /* Code pointer */
         b       .L102
-ENDFUNCTION(caml_callback_asm)
+ENDFUNCTION caml_callback_asm
 
-FUNCTION(caml_callback2_asm)
+FUNCTION caml_callback2_asm
     /* r3 = Caml_state, r4 = closure, 0(r5) = first arg,
        8(r5) = second arg */
         mr      START_PRG_DOMAIN_STATE_PTR, 3
@@ -605,9 +605,9 @@ FUNCTION(caml_callback2_asm)
         mr      5, 0                /* r5 = Closure */
         Addrglobal(START_PRG_ARG, caml_apply2)
         b       .L102
-ENDFUNCTION(caml_callback2_asm)
+ENDFUNCTION caml_callback2_asm
 
-FUNCTION(caml_callback3_asm)
+FUNCTION caml_callback3_asm
     /* r3 = Caml_state, r4 = closure, 0(r5) = first arg, 8(r5) = second arg,
        2*8(r5) = third arg */
         mr      START_PRG_DOMAIN_STATE_PTR, 3
@@ -617,7 +617,7 @@ FUNCTION(caml_callback3_asm)
         ld      5, 2*8(5)        /* r5 = Third argument */
         Addrglobal(START_PRG_ARG, caml_apply3)
         b       .L102
-ENDFUNCTION(caml_callback3_asm)
+ENDFUNCTION caml_callback3_asm
 
 /* Fibers */
 
@@ -647,7 +647,7 @@ ENDFUNCTION(caml_callback3_asm)
  * parent pointer.
  */
 
-FUNCTION(caml_perform)
+FUNCTION caml_perform
   /* r3: effect to perform
      r4: freshly allocated continuation */
 
@@ -688,9 +688,9 @@ FUNCTION(caml_perform)
         ADDRGLOBAL(ADDITIONAL_ARG, caml_raise_unhandled_effect)
         b       caml_c_call
         CFI_ENDPROC
-        END_FUNCTION(caml_perform)
+        END_FUNCTION caml_perform
 
-FUNCTION(caml_reperform)
+FUNCTION caml_reperform
         CFI_STARTPROC
   /* r3: effect to perform
      r4: continuation
@@ -701,9 +701,9 @@ FUNCTION(caml_reperform)
         addi    6, 5, 1 /* r6 (last_fiber) := Val_ptr(old stack) */
         b       .Ldo_perform
         CFI_ENDPROC
-        END_FUNCTION(caml_reperform)
+        END_FUNCTION caml_reperform
 
-FUNCTION(caml_resume)
+FUNCTION caml_resume
 CFI_STARTPROC
   /* r3: new fiber
      r4: fun
@@ -730,11 +730,11 @@ CFI_STARTPROC
 2:      ADDRGLOBAL(ADDITIONAL_ARG, caml_raise_continuation_already_resumed)
         b       caml_c_call
         CFI_ENDPROC
-        END_FUNCTION(caml_resume)
+        END_FUNCTION caml_resume
 
 /* Run a function on a new stack, then either
    return the value or invoke exception handler */
-FUNCTION(caml_runstack)
+FUNCTION caml_runstack
 CFI_STARTPROC
   /* r3: fiber
      r4: fun
@@ -814,7 +814,7 @@ L(fiber_exn_handler):
         ldr     x19, Handler_exception(x8)
         b       1b
         CFI_ENDPROC
-        END_FUNCTION(caml_runstack)
+        END_FUNCTION caml_runstack
 
 
         .section ".text"
