@@ -244,9 +244,7 @@ caml_system__code_begin:
 /* Desired size is passed in register TMP2. */
 
 FUNCTION caml_call_realloc_stack
-   /* Allocate the minimal frame that the caller did not allocate yet.
-      Save return address there. */
-        addi    SP, SP, -RESERVED_SIZE
+   /* Save return address in caller's frame. */
         mflr    0
         std     0, LR_SAVE(SP)
    /* Save all registers, as well as ALLOC_PTR and TRAP_PTR */
@@ -255,19 +253,16 @@ FUNCTION caml_call_realloc_stack
         mr      3, TMP2
    /* Switch stacks and call caml_try_realloc_stack */
         SWITCH_OCAML_TO_C
-        addi    SP, SP, -RESERVED_STACK
         FAR_CALL caml_try_realloc_stack
         SWITCH_C_TO_OCAML
         cmpdi   3, 0
-   /* Restore all registers, and also return address and TOC register */
+   /* Restore all registers, and also return address */
         RESTORE_ALL_REGS
         ld      0, LR_SAVE(SP)
         mtlr    0
-        addi    SP, SP, RESERVED_SIZE
    /* Check status */
         beq     1f
    /* Reallocation successful: return to caller */
-        ld      TOC, TOC_SAVE(SP)    /* restore caller's TOC */
         blr
    /* Reallocation failed: raise the Stack_overflow exception */
 1:      Addrglobal(3, caml_exn_Stack_overflow)
@@ -284,14 +279,12 @@ FUNCTION caml_call_gc
         SAVE_ALL_REGS
    /* Switch stacks and call caml_garbage_collection */
         SWITCH_OCAML_TO_C
-        addi    SP, SP, -RESERVED_STACK
         FAR_CALL caml_garbage_collection
         SWITCH_C_TO_OCAML
    /* Restore registers and return to caller */
         RESTORE_ALL_REGS
         ld      0, LR_SAVE(SP)
         mtlr    0
-        ld      TOC, TOC_SAVE(SP)
         blr
 ENDFUNCTION caml_call_gc
 
@@ -307,7 +300,6 @@ FUNCTION caml_c_call
         std     ALLOC_PTR, Caml_state(young_ptr)
         std     TRAP_PTR, Caml_state(exception_pointer)
     /* Call C function (address in C_CALL_FUN) */
-        addi    SP, SP, -RESERVED_STACK
         mtctr   C_CALL_FUN
         mr      12, C_CALL_FUN
         mr      C_CALL_TOC, 2   /* save current TOC in a callee-save register */
@@ -349,7 +341,6 @@ FUNCTION caml_c_call_stack_args
         cmpd    STACK_ARG_BEGIN, STACK_ARG_END
         bne     1b
     /* Call C function (address in C_CALL_FUN) */
-        addi    SP, SP, -RESERVED_STACK
         mtctr   C_CALL_FUN
         mr      12, C_CALL_FUN
         mr      C_CALL_TOC, 2   /* save current TOC in a callee-save register */
@@ -483,7 +474,7 @@ FUNCTION caml_start_program
         addi    TMP, SP, RESERVED_STACK  /* pointer to the struct */
         ld      0, Caml_state(c_stack)
         std     0, Cstack_prev(TMP)
-        std     TMP, Caml_state(c_stack)
+        std     SP, Caml_state(c_stack)
     /* Load the OCaml stack */
         ld      TMP, Caml_state(current_stack)
         ld      TMP, Stack_sp(TMP)
@@ -505,7 +496,8 @@ FUNCTION caml_start_program
     /* Call the OCaml code (address in START_PRG_ARG) */
         mtctr   START_PRG_ARG
         std     2, TOC_SAVE(SP)
-.L105:  bctrl
+.Lcaml_retaddr:
+        bctrl
         ld      2, TOC_SAVE(SP)
     /* Pop the trap frame, restoring caml_exception_pointer */
         ld      0, TRAP_PREVIOUS_OFFSET(SP)
@@ -710,7 +702,8 @@ CFI_STARTPROC
      r4: fun
      r5: arg */
         addi    3, 3, -1 /* r3 = Ptr_val(r3) */
-        ld      12, 0(4) /* code pointer */
+        ld      12, 0(4) /* r12 = code pointer */
+        mtctr   12       /* CTR = code pointer */
     /* Check if stack is null, then already used */
         cmpdi   3, 0
         beq     2f
@@ -725,7 +718,6 @@ CFI_STARTPROC
         std     8, Handler_parent(7)
     /* Switch stacks and run code */
         SWITCH_OCAML_STACKS 8, 3
-        mtctr   12
         mr      3, 5
         bctr
 2:      ADDRGLOBAL(ADDITIONAL_ARG, caml_raise_continuation_already_resumed)
@@ -740,83 +732,70 @@ CFI_STARTPROC
   /* r3: fiber
      r4: fun
      r5: arg */
-        stp     x29, x30, [sp, -16]!
-        CFI_ADJUST(16)
-        add     x29, sp, #0
-        sub     x0, x0, 1  /* x0 := Ptr_val(x0) */
-        ldr     x3, [x1]   /* code pointer */
+        addi    SP, SP, -RESERVED_SIZE
+        mflr    0
+        std     0, (RESERVED_SIZE + LR_SAVE)(SP)
+        std     2, TOC_SAVE(SP)
+        addi    3, 3, -1   /* r3 := Ptr_val(r3) */
+        ld      12, 0(4)   /* r12 := code pointer */
+        mtctr   12         /* CTR := code pointer */
     /*  save old stack pointer and exception handler */
-        ldr     x8, Caml_state(current_stack) /* x8 := old stack */
-        mov     TMP, sp
-        str     TMP, Stack_sp(x8)
-        str     TRAP_PTR, Stack_exception(x8)
+        ld      8, Caml_state(current_stack) /* r8 := old stack */
+        std     SP, Stack_sp(8)
+        std     TRAP_PTR, Stack_exception(8)
     /* Load new stack pointer and set parent */
-        ldr     TMP, Stack_handler(x0)
-        str     x8, Handler_parent(TMP)
-        str     x0, Caml_state(current_stack)
-        ldr     x9, Stack_sp(x0) /* x9 := sp of new stack */
+        ld      TMP, Stack_handler(3)
+        std     8, Handler_parent(TMP)
+        std     3, Caml_state(current_stack)
+        ld      9, Stack_sp(3) /* r9 := sp of new stack */
     /* Create an exception handler on the target stack
        after 16byte DWARF & gc_regs block (which is unused here) */
-        sub     x9, x9, 32
-        adr     TMP, L(fiber_exn_handler)
-        str     TMP, [x9, 8]
+        addi    9, 9, -(16 + TRAP_SIZE)
+        Addrglobal(TMP, .Lfiber_exn_handler)
+        std     TMP, TRAP_HANDLER_OFFSET(9)
     /* link the previous exn_handler so that copying stacks works */
-        ldr     TMP, Stack_exception(x0)
-        str     TMP, [x9]
-        mov     TRAP_PTR, x9
+        ld      TMP, Stack_exception(3)
+        std     TMP, TRAP_PREVIOUS_OFFSET(9)
+        mr      TRAP_PTR, 9
     /* Switch to the new stack */
-        mov     sp, x9
-#ifdef ASM_CFI_SUPPORTED
-        CFI_REMEMBER_STATE
-        .cfi_escape DW_CFA_def_cfa_expression, 3+3+2,       \
-          DW_OP_breg + DW_REG_sp,                           \
-            16 /* exn */ +                                  \
-            8 /* gc_regs slot (unused) */ +                 \
-            8 /* C_STACK_SP for DWARF (unused) */           \
-            + Handler_parent_offset, DW_OP_deref,           \
-          DW_OP_plus_uconst, Stack_sp_offset, DW_OP_deref,  \
-          DW_OP_plus_uconst, 16 /* fp + ret addr */
-#endif
+        mr      SP, 9
     /* Call the function on the new stack */
-        mov     x0, x2
-        blr     x3
-L(frame_runstack):
-        add     x8, sp, 32 /* x8 := stack_handler */
-        ldr     x19, Handler_value(x8) /* saved across C call */
+        mr      5, 3   /* argument */
+.Lframe_runstack:
+        bctrl
+        add     8, SP, (RESERVED_STACK + TRAP_SIZE + 16)
+                                       /* r8 := stack_handler */
+        ldr     25, Handler_value(8) /* saved across C call */
 1:
-        mov     x20, x0     /* save return across C call */
-        ldr     x0, Caml_state(current_stack) /* arg to caml_free_stack */
+        mr      26, 3                /* save return value across C call */
+        ld      3, Caml_state(current_stack) /* arg to caml_free_stack */
     /* restore parent stack and exn_handler into Caml_state */
-        ldr     TMP, Handler_parent(x8)
-        str     TMP, Caml_state(current_stack)
-        ldr     TRAP_PTR, Stack_exception(TMP)
-        str     TRAP_PTR, Caml_state(exn_handler)
+        ld      TMP, Handler_parent(8)
+        std     TMP, Caml_state(current_stack)
+        ld      TRAP_PTR, Stack_exception(TMP)
+        std     TRAP_PTR, Caml_state(exn_handler)
+    /* restore saved TOC */
+        ld      27. Stack_sp(TMP)    /* saved across C calls */
+        ld      2, TOC_SAVE(27)
     /* free old stack by switching directly to c_stack;
-       is a no-alloc call */
-        ldr     x21, Stack_sp(TMP) /* saved across C call */
-        CFI_RESTORE_STATE
-        CFI_REMEMBER_STATE
-        CFI_DEF_CFA_REGISTER(DW_REG_x21)
-        ldr     TMP, Caml_state(c_stack)
-        mov     sp, TMP
+       this is a no-alloc call */
+        ld      SP, Caml_state(c_stack)
         FAR_CALL caml_free_stack
     /* switch directly to parent stack with correct return */
-        mov     x0, x20
-        mov     x1, x19
-        mov     sp, x21
-        CFI_RESTORE_STATE
-        ldr     TMP, [x19]  /* code pointer */
+        mr      3, 26  /* return value */
+        mr      4, 25  /* handler value */
+        mr      SP, 27 /* OCaml stack */
+        ld      12, 0(4) /* code pointer */
+        mtctr   12       /* code pointer */
     /* Invoke handle_value (or handle_exn) */
-        ldp     x29, x30, [sp], 16
-        CFI_ADJUST(-16)
-        br      TMP
-L(fiber_exn_handler):
-        add     x8, sp, 16  /* x8 := stack_handler */
-        ldr     x19, Handler_exception(x8)
+        ld      0, LR_SAVE(SP)
+        mtlr    0
+        bctr
+.Lfiber_exn_handler:
+        add     8, SP, (RESERVED_STACK + 16) /* r8 := stack_handler */
+        ld      25, Handler_exception(8)
         b       1b
-        CFI_ENDPROC
         END_FUNCTION caml_runstack
-
 
         .section ".text"
         .globl  caml_system__code_end
@@ -828,10 +807,15 @@ caml_system__code_end:
         .globl  caml_system.frametable
         .type   caml_system.frametable, @object
 caml_system__frametable:
-        .quad   1               /* one descriptor */
-        .quad   .L105 + 4       /* return address into callback */
-        .short  -1              /* negative size count => use callback link */
+        .quad   2               /* two descriptors */
+        .quad   .Lcaml_retaddr + 4  /* return address into callback */
+        .short  -1              /* negative frame size => use callback link */
+        .short  0               /* no roots */
+        .align  3
+        .quad   .Lframe_runstack + 4 /* return address into fiber handler */
+        .short  -1              /* negative frame size => use callback link */
         .short  0               /* no roots here */
+        .align 3
 
 /* TOC entries */
 
