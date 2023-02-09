@@ -33,14 +33,18 @@
 #include "caml/mlvalues.h"
 #include "caml/reverse.h"
 #include "caml/shared_heap.h"
+#ifdef HAS_ZLIB
+#include <zlib.h>
+#endif
 
 /* Flags affecting marshaling */
 
 enum {
   NO_SHARING = 1,               /* Flag to ignore sharing */
   CLOSURES = 2,                 /* Flag to allow marshaling code pointers */
-  COMPAT_32 = 4                 /* Flag to ensure that output can safely
+  COMPAT_32 = 4,                /* Flag to ensure that output can safely
                                    be read back on a 32-bit platform */
+  COMPRESSED = 8                /* Flag to request compression if available */
 };
 
 /* Stack for pending values to marshal */
@@ -472,9 +476,24 @@ Caml_inline void store64(char * dst, int64_t n)
   dst[4] = n >> 24;  dst[5] = n >> 16;  dst[6] = n >> 8;   dst[7] = n;
 }
 
+#ifdef HAS_ZLIB
+static int storevlq(char * dst, uintnat n)
+{
+  /* Find number of base-128 digits (always at least one) */
+  int ndigits = 1;
+  for (uintnat m = n >> 7; m != 0; m >>= 7) ndigits++;
+  /* Convert number */
+  dst += ndigits - 1;
+  *dst = n & 0x7F;
+  for (n >>= 7; n != 0; n >>= 7) *--dst = 0x80 | (n & 0x7F);
+  /* Return length of number */
+  return ndigits;
+}
+#endif
+
 /* Write characters, integers, and blocks in the output buffer */
 
-Caml_inline void write(struct caml_extern_state* s, int c)
+Caml_inline void writebyte(struct caml_extern_state* s, int c)
 {
   if (s->extern_ptr >= s->extern_limit) grow_extern_output(s, 1);
   *s->extern_ptr++ = c;
@@ -541,7 +560,7 @@ static void writecode64(struct caml_extern_state* s,
 Caml_inline void extern_int(struct caml_extern_state* s, intnat n)
 {
   if (n >= 0 && n < 0x40) {
-    write(s, PREFIX_SMALL_INT + n);
+    writebyte(s, PREFIX_SMALL_INT + n);
   } else if (n >= -(1 << 7) && n < (1 << 7)) {
     writecode8(s, CODE_INT8, n);
   } else if (n >= -(1 << 15) && n < (1 << 15)) {
@@ -582,7 +601,7 @@ Caml_inline void extern_header(struct caml_extern_state* s,
                                mlsize_t sz, tag_t tag)
 {
   if (tag < 16 && sz < 8) {
-    write(s, PREFIX_SMALL_BLOCK + tag + (sz << 4));
+    writebyte(s, PREFIX_SMALL_BLOCK + tag + (sz << 4));
   } else {
     header_t hd = Make_header(sz, tag, NOT_MARKABLE);
 #ifdef ARCH_SIXTYFOUR
@@ -605,7 +624,7 @@ Caml_inline void extern_string(struct caml_extern_state *s,
                                value v, mlsize_t len)
 {
   if (len < 0x20) {
-    write(s, PREFIX_SMALL_STRING + len);
+    writebyte(s, PREFIX_SMALL_STRING + len);
   } else if (len < 0x100) {
     writecode8(s, CODE_STRING8, len);
   } else {
@@ -628,7 +647,7 @@ Caml_inline void extern_string(struct caml_extern_state *s,
 
 Caml_inline void extern_double(struct caml_extern_state* s, value v)
 {
-  write(s, CODE_DOUBLE_NATIVE);
+  writebyte(s, CODE_DOUBLE_NATIVE);
   writeblock_float8(s, (double *) v, 1);
 }
 
@@ -670,7 +689,7 @@ Caml_inline void extern_custom(struct caml_extern_state* s, value v,
   if (serialize == NULL)
     extern_invalid_argument(s, "output_value: abstract value (Custom)");
   if (fixed_length == NULL) {
-    write(s, CODE_CUSTOM_LEN);
+    writebyte(s, CODE_CUSTOM_LEN);
     writeblock(s, ident, strlen(ident) + 1);
     /* Reserve 12 bytes for the lengths (sz_32 and sz_64). */
     if (s->extern_ptr + 12 >= s->extern_limit) grow_extern_output(s, 12);
@@ -681,7 +700,7 @@ Caml_inline void extern_custom(struct caml_extern_state* s, value v,
     store32(size_header, *sz_32);
     store64(size_header + 4, *sz_64);
   } else {
-    write(s, CODE_CUSTOM_FIXED);
+    writebyte(s, CODE_CUSTOM_FIXED);
     writeblock(s, ident, strlen(ident) + 1);
     serialize(v, sz_32, sz_64);
         if (*sz_32 != fixed_length->bsize_32 ||
@@ -889,15 +908,91 @@ static void extern_rec(struct caml_extern_state* s, value v)
   /* Never reached as function leaves with return */
 }
 
-static int extern_flag_values[] = { NO_SHARING, CLOSURES, COMPAT_32 };
+/* Compress the output */
+
+#ifdef HAS_ZLIB
+
+void extern_compress_output(struct caml_extern_state* s)
+{
+  z_stream zs;
+  struct output_block * input, * output, * output_head;
+  int rc;
+
+  zs.zalloc = NULL; zs.zfree = NULL; zs.opaque = NULL;
+  rc = deflateInit(&zs, 7);
+  if (rc != Z_OK) extern_out_of_memory(s);
+  input = s->extern_output_first;
+  output_head = caml_stat_alloc_noexc(sizeof(struct output_block));
+  if (output_head == NULL) goto oom;
+  output = output_head;
+  output->next = NULL;
+  zs.next_in = (Bytef *) input->data;
+  zs.avail_in = input->end - input->data;
+  zs.next_out = (Bytef *) output->data;
+  zs.avail_out = SIZE_EXTERN_OUTPUT_BLOCK;
+  do {
+    if (zs.avail_out == 0) {
+      output->end = (char *) zs.next_out;
+      /* Allocate fresh output block */
+      struct output_block * next =
+        caml_stat_alloc_noexc(sizeof(struct output_block));
+      if (next == NULL) goto oom;
+      output->next = next;
+      output = next;
+      output->next = NULL;
+      zs.next_out = (Bytef *) output->data;
+      zs.avail_out = SIZE_EXTERN_OUTPUT_BLOCK;
+    }
+    if (zs.avail_in == 0 && input != NULL) {
+      /* Move to next input block and free current input block */
+      struct output_block * next = input->next;
+      caml_stat_free(input);
+      input = next;
+      if (input != NULL) {
+        zs.next_in = (Bytef *) input->data;
+        zs.avail_in = input->end - input->data;
+      } else {
+        zs.next_in = NULL;
+        zs.avail_in = 0;
+      }
+    }
+    rc = deflate(&zs, input == NULL ? Z_FINISH : Z_NO_FLUSH);
+  } while (! (input == NULL && rc == Z_STREAM_END));
+  output->end = (char *) zs.next_out;
+  deflateEnd(&zs);
+  s->extern_output_first = output_head;
+  return;
+oom:
+  deflateEnd(&zs);
+  /* Free the new output blocks */
+  for (output = output_head; output != NULL; ) {
+    struct output_block * next = output->next;
+    caml_stat_free(output);
+    output = next;
+  }
+  extern_out_of_memory(s);
+}
+
+#endif
+
+static int extern_flag_values[] = {
+  NO_SHARING, CLOSURES, COMPAT_32, COMPRESSED
+};
 
 static intnat extern_value(struct caml_extern_state* s, value v, value flags,
-                           /*out*/ char header[32],
+                           /*out*/ char header[MAX_INTEXT_HEADER_SIZE],
                            /*out*/ int * header_len)
 {
   intnat res_len;
   /* Parse flag list */
   s->extern_flags = caml_convert_flag_list(flags, extern_flag_values);
+  /* Turn compression off if Zlib missing or if called from
+     caml_output_value_to_block */
+#ifdef HAS_ZLIB
+  if (s->extern_userprovided_output) s->extern_flags &= ~COMPRESSED;
+#else
+  s->extern_flags &= ~COMPRESSED;
+#endif
   /* Initializations */
   s->obj_counter = 0;
   s->size_32 = 0;
@@ -906,6 +1001,26 @@ static intnat extern_value(struct caml_extern_state* s, value v, value flags,
   extern_rec(s, v);
   /* Record end of output */
   close_extern_output(s);
+  /* Compress if requested */
+#ifdef HAS_ZLIB
+  if (s->extern_flags & COMPRESSED) {
+    uintnat uncompressed_len = extern_output_length(s);
+    extern_compress_output(s);
+    res_len = extern_output_length(s);
+    /* Write the header in compressed format */
+    store32(header, Intext_magic_number_compressed);
+    int pos = 5, len;
+    len = storevlq(header + pos, res_len); pos += len;
+    len = storevlq(header + pos, uncompressed_len); pos += len;
+    len = storevlq(header + pos, s->obj_counter); pos += len;
+    len = storevlq(header + pos, s->size_32); pos += len;
+    len = storevlq(header + pos, s->size_64); pos += len;
+    CAMLassert(len < 64);
+    header[4] = pos;
+    *header_len = pos;
+    return res_len;
+  }
+#endif
   /* Write the header */
   res_len = extern_output_length(s);
 #ifdef ARCH_SIXTYFOUR
@@ -939,7 +1054,7 @@ static intnat extern_value(struct caml_extern_state* s, value v, value flags,
 
 void caml_output_val(struct channel *chan, value v, value flags)
 {
-  char header[32];
+  char header[MAX_INTEXT_HEADER_SIZE];
   int header_len;
   struct output_block * blk, * nextblk;
   struct caml_extern_state* s = get_extern_state ();
@@ -949,7 +1064,7 @@ void caml_output_val(struct channel *chan, value v, value flags)
   init_extern_output(s);
   extern_value(s, v, flags, header, &header_len);
   /* During [caml_really_putblock], concurrent [caml_output_val] operations
-     can take place (via signal handlers or context switching in systhreads),
+     can take place (via context switching in systhreads),
      and [extern_output_first] may change. So, save it in a local variable. */
   blk = s->extern_output_first;
   caml_really_putblock(chan, header, header_len);
@@ -975,7 +1090,7 @@ CAMLprim value caml_output_value(value vchan, value v, value flags)
 
 CAMLprim value caml_output_value_to_bytes(value v, value flags)
 {
-  char header[32];
+  char header[MAX_INTEXT_HEADER_SIZE];
   int header_len;
   intnat data_len, ofs;
   value res;
@@ -1010,7 +1125,7 @@ CAMLprim value caml_output_value_to_string(value v, value flags)
 CAMLexport intnat caml_output_value_to_block(value v, value flags,
                                              char * buf, intnat len)
 {
-  char header[32];
+  char header[MAX_INTEXT_HEADER_SIZE];
   int header_len;
   intnat data_len;
   struct caml_extern_state* s = get_extern_state ();
@@ -1045,7 +1160,7 @@ CAMLexport void caml_output_value_to_malloc(value v, value flags,
                                             /*out*/ char ** buf,
                                             /*out*/ intnat * len)
 {
-  char header[32];
+  char header[MAX_INTEXT_HEADER_SIZE];
   int header_len;
   intnat data_len;
   char * res;

@@ -56,6 +56,7 @@ type extern_flags =
     No_sharing                          (** Don't preserve sharing *)
   | Closures                            (** Send function closures *)
   | Compat_32                           (** Ensure 32-bit compatibility *)
+  | Compression                         (** Compress the output if possible *)
 (** The flags to the [Marshal.to_*] functions below. *)
 
 val to_channel : out_channel -> 'a -> extern_flags list -> unit
@@ -97,6 +98,16 @@ val to_channel : out_channel -> 'a -> extern_flags list -> unit
    corresponding closure will create a new reference, different from
    the global one.
 
+   If [flags] contains [Marshal.Compression], the marshaled data
+   representing value [v] is compressed before being written to
+   channel [chan].  Decompression takes place automatically in
+   the unmarshaling functions {!input_value}, {!Marshal.from_channel},
+   {!Marshal.from_string}, etc.  For large values [v], compression
+   typically reduces the size of marshaled data by a factor 2 to 4,
+   but slows down marshaling and, to a lesser extent, unmarshaling.
+   Compression is not supported on some platforms; in this case,
+   the [Marshal.Compression] flag is silently ignored and uncompressed
+   data is written to channel [chan].
 
    If [flags] contains [Marshal.Compat_32], marshaling fails when
    it encounters an integer value outside the range [[-2{^30}, 2{^30}-1]]

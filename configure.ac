@@ -1929,6 +1929,19 @@ AC_COMPILE_IFELSE(
         pthread_getaffinity_np(pthread_self(), sizeof(cs), &cs);]])],
     [AC_DEFINE([HAS_BSD_GETAFFINITY_NP])])])
 
+## Zlib compression library
+
+dnl AC_CHECK_HEADER(zlib.h,
+dnl   [AC_CHECK_LIB(z, deflateInit,
+dnl     [cclibs="$cclibs -lz"
+dnl      AC_DEFINE([HAS_ZLIB])])])
+
+AX_CHECK_ZLIB(
+  [cclibs="$cclibs -L${ZLIB_HOME}/lib -lz"
+   internal_cppflags="$internal_cppflags -I${ZLIB_HOME}/include"
+   AC_DEFINE([HAS_ZLIB])],
+  [AC_MSG_WARN([zlib not found: compressed marshaling support disabled.])])
+
 ## Determine whether the debugger should/can be built
 
 AS_CASE([$enable_debugger],
