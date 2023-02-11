@@ -805,7 +805,10 @@ static void extern_rec(struct caml_extern_state* s, value v)
     /* Check if object already seen */
     if (! (s->extern_flags & NO_SHARING)) {
       if (extern_lookup_position(s, v, &pos, &h)) {
-        extern_shared_reference(s, s->obj_counter - pos);
+        /* #4056: using absolute references for shared objects improves
+           compressibility. */
+        uintnat d = s->extern_flags & COMPRESSED ? pos : s->obj_counter - pos;
+        extern_shared_reference(s, d);
         goto next_item;
       }
     }

@@ -527,10 +527,10 @@ static void intern_rec(struct caml_intern_state* s,
       case CODE_SHARED8:
         ofs = read8u(s);
       read_shared:
-        CAMLassert (ofs > 0);
-        CAMLassert (ofs <= s->obj_counter);
+        if (!s->compressed) ofs = s->obj_counter - ofs;
+        CAMLassert (ofs < s->obj_counter);
         CAMLassert (s->intern_obj_table != NULL);
-        v = s->intern_obj_table[s->obj_counter - ofs];
+        v = s->intern_obj_table[ofs];
         break;
       case CODE_SHARED16:
         ofs = read16u(s);
