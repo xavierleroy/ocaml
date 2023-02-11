@@ -471,6 +471,12 @@ AC_ARG_WITH([flexdll],
     [bootstrap FlexDLL from the given sources])],
   [AS_IF([test x"$withval" = 'xyes'],[with_flexdll=flexdll])])
 
+AC_ARG_WITH([zlib],
+  [AS_HELP_STRING([--without-zlib],
+    [disable compression of marshaled data])],
+  [],
+  [with_zlib=yes])
+
 AS_IF([test x"$enable_unix_lib" = "xno"],
   [AS_IF([test x"$enable_debugger" = "xyes"],
     [AC_MSG_ERROR([replay debugger requires the unix library])],
@@ -1931,16 +1937,13 @@ AC_COMPILE_IFELSE(
 
 ## Zlib compression library
 
-dnl AC_CHECK_HEADER(zlib.h,
-dnl   [AC_CHECK_LIB(z, deflateInit,
-dnl     [cclibs="$cclibs -lz"
-dnl      AC_DEFINE([HAS_ZLIB])])])
-
-AX_CHECK_ZLIB(
-  [cclibs="$cclibs -L${ZLIB_HOME}/lib -lz"
-   internal_cppflags="$internal_cppflags -I${ZLIB_HOME}/include"
-   AC_DEFINE([HAS_ZLIB])],
-  [AC_MSG_WARN([zlib not found: compressed marshaling support disabled.])])
+AS_IF([test x"$with_zlib" = "xyes"],
+  AS_IF(m4_normalize([zlib_libs=`pkg-config --libs zlib 2>/dev/null`
+                   && zlib_flags=`pkg-config --cflags zlib 2>/dev/null`]),
+    [cclibs="$cclibs $zlib_libs"
+     internal_cppflags="$internal_cppflags $zlib_flags"
+     AC_DEFINE([HAS_ZLIB])],
+    [AC_MSG_WARN([zlib not found: compressed marshaling support disabled.])]))
 
 ## Determine whether the debugger should/can be built
 

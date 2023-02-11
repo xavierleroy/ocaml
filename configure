@@ -979,6 +979,7 @@ enable_function_sections
 enable_mmap_map_stack
 with_afl
 with_flexdll
+with_zlib
 enable_shared
 enable_static
 with_pic
@@ -987,7 +988,6 @@ with_aix_soname
 with_gnu_ld
 with_sysroot
 enable_libtool_lock
-with_zlib
 '
       ac_precious_vars='build_alias
 host_alias
@@ -1682,6 +1682,7 @@ Optional Packages:
   --with-target-bindir    location of binary programs on target system
   --with-afl              use the AFL fuzzer
   --with-flexdll          bootstrap FlexDLL from the given sources
+  --without-zlib          disable compression of marshaled data
   --with-pic[=PKGS]       try to use only PIC/non-PIC objects [default=use
                           both]
   --with-aix-soname=aix|svr4|both
@@ -1690,9 +1691,6 @@ Optional Packages:
   --with-gnu-ld           assume the C compiler uses GNU ld [default=no]
   --with-sysroot[=DIR]    Search for dependent libraries within DIR (or the
                           compiler's sysroot if not specified).
-  --with-zlib=DIR         root directory path of zlib installation [defaults to
-                          /usr/local or /usr if not found in /usr/local]
-  --without-zlib          to disable zlib usage completely
   --with-odoc
 
 Some influential environment variables:
@@ -3921,6 +3919,16 @@ then :
 then :
   with_flexdll=flexdll
 fi
+fi
+
+
+
+# Check whether --with-zlib was given.
+if test ${with_zlib+y}
+then :
+  withval=$with_zlib;
+else $as_nop
+  with_zlib=yes
 fi
 
 
@@ -17979,142 +17987,19 @@ rm -f core conftest.err conftest.$ac_objext conftest.beam conftest.$ac_ext
 
 ## Zlib compression library
 
-
-#
-# Handle user hints
-#
-{ printf "%s\n" "$as_me:${as_lineno-$LINENO}: checking if zlib is wanted" >&5
-printf %s "checking if zlib is wanted... " >&6; }
-zlib_places="/usr/local /usr /opt/local /sw"
-
-# Check whether --with-zlib was given.
-if test ${with_zlib+y}
+if test x"$with_zlib" = "xyes"
 then :
-  withval=$with_zlib; if test "$withval" != no ; then
-  { printf "%s\n" "$as_me:${as_lineno-$LINENO}: result: yes" >&5
-printf "%s\n" "yes" >&6; }
-  if test -d "$withval"
-  then
-    zlib_places="$withval $zlib_places"
-  else
-    { printf "%s\n" "$as_me:${as_lineno-$LINENO}: WARNING: Sorry, $withval does not exist, checking usual places" >&5
-printf "%s\n" "$as_me: WARNING: Sorry, $withval does not exist, checking usual places" >&2;}
-  fi
-else
-  zlib_places=
-  { printf "%s\n" "$as_me:${as_lineno-$LINENO}: result: no" >&5
-printf "%s\n" "no" >&6; }
-fi
-else $as_nop
-  { printf "%s\n" "$as_me:${as_lineno-$LINENO}: result: yes" >&5
-printf "%s\n" "yes" >&6; }
-fi
-
-
-#
-# Locate zlib, if wanted
-#
-if test -n "${zlib_places}"
-then
-	# check the user supplied or any other more or less 'standard' place:
-	#   Most UNIX systems      : /usr/local and /usr
-	#   MacPorts / Fink on OSX : /opt/local respectively /sw
-	for ZLIB_HOME in ${zlib_places} ; do
-	  if test -f "${ZLIB_HOME}/include/zlib.h"; then break; fi
-	  ZLIB_HOME=""
-	done
-
-  ZLIB_OLD_LDFLAGS=$LDFLAGS
-  ZLIB_OLD_CPPFLAGS=$CPPFLAGS
-  if test -n "${ZLIB_HOME}"; then
-        LDFLAGS="$LDFLAGS -L${ZLIB_HOME}/lib"
-        CPPFLAGS="$CPPFLAGS -I${ZLIB_HOME}/include"
-  fi
-  ac_ext=c
-ac_cpp='$CPP $CPPFLAGS'
-ac_compile='$CC -c $CFLAGS $CPPFLAGS conftest.$ac_ext >&5'
-ac_link='$CC -o conftest$ac_exeext $CFLAGS $CPPFLAGS $LDFLAGS conftest.$ac_ext $LIBS >&5'
-ac_compiler_gnu=$ac_cv_c_compiler_gnu
-
-  { printf "%s\n" "$as_me:${as_lineno-$LINENO}: checking for inflateEnd in -lz" >&5
-printf %s "checking for inflateEnd in -lz... " >&6; }
-if test ${ac_cv_lib_z_inflateEnd+y}
+  if zlib_libs=`pkg-config --libs zlib 2>/dev/null` && zlib_flags=`pkg-config --cflags zlib 2>/dev/null`
 then :
-  printf %s "(cached) " >&6
+  cclibs="$cclibs $zlib_libs"
+     internal_cppflags="$internal_cppflags $zlib_flags"
+     printf "%s\n" "#define HAS_ZLIB 1" >>confdefs.h
+
 else $as_nop
-  ac_check_lib_save_LIBS=$LIBS
-LIBS="-lz  $LIBS"
-cat confdefs.h - <<_ACEOF >conftest.$ac_ext
-/* end confdefs.h.  */
-
-/* Override any GCC internal prototype to avoid an error.
-   Use char because int might match the return type of a GCC
-   builtin and then its argument prototype would still apply.  */
-char inflateEnd ();
-int
-main (void)
-{
-return inflateEnd ();
-  ;
-  return 0;
-}
-_ACEOF
-if ac_fn_c_try_link "$LINENO"
-then :
-  ac_cv_lib_z_inflateEnd=yes
-else $as_nop
-  ac_cv_lib_z_inflateEnd=no
-fi
-rm -f core conftest.err conftest.$ac_objext conftest.beam \
-    conftest$ac_exeext conftest.$ac_ext
-LIBS=$ac_check_lib_save_LIBS
-fi
-{ printf "%s\n" "$as_me:${as_lineno-$LINENO}: result: $ac_cv_lib_z_inflateEnd" >&5
-printf "%s\n" "$ac_cv_lib_z_inflateEnd" >&6; }
-if test "x$ac_cv_lib_z_inflateEnd" = xyes
-then :
-  zlib_cv_libz=yes
-else $as_nop
-  zlib_cv_libz=no
-fi
-
-  ac_fn_c_check_header_compile "$LINENO" "zlib.h" "ac_cv_header_zlib_h" "$ac_includes_default"
-if test "x$ac_cv_header_zlib_h" = xyes
-then :
-  zlib_cv_zlib_h=yes
-else $as_nop
-  zlib_cv_zlib_h=no
-fi
-
-  ac_ext=c
-ac_cpp='$CPP $CPPFLAGS'
-ac_compile='$CC -c $CFLAGS $CPPFLAGS conftest.$ac_ext >&5'
-ac_link='$CC -o conftest$ac_exeext $CFLAGS $CPPFLAGS $LDFLAGS conftest.$ac_ext $LIBS >&5'
-ac_compiler_gnu=$ac_cv_c_compiler_gnu
-
-  if test "$zlib_cv_libz" = "yes" && test "$zlib_cv_zlib_h" = "yes"
-  then
-    #
-    # If both library and header were found, action-if-found
-    #
-
-                # Restore variables
-                LDFLAGS="$ZLIB_OLD_LDFLAGS"
-                CPPFLAGS="$ZLIB_OLD_CPPFLAGS"
-                cclibs="$cclibs -L${ZLIB_HOME}/lib -lz"
-   internal_cppflags="$internal_cppflags -I${ZLIB_HOME}/include"
-   printf "%s\n" "#define HAS_ZLIB 1" >>confdefs.h
-
-
-  else
-    #
-    # If either header or library was not found, action-if-not-found
-    #
-    { printf "%s\n" "$as_me:${as_lineno-$LINENO}: WARNING: zlib not found: compressed marshaling support disabled." >&5
+  { printf "%s\n" "$as_me:${as_lineno-$LINENO}: WARNING: zlib not found: compressed marshaling support disabled." >&5
 printf "%s\n" "$as_me: WARNING: zlib not found: compressed marshaling support disabled." >&2;}
-  fi
 fi
-
+fi
 
 ## Determine whether the debugger should/can be built
 
