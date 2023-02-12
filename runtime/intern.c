@@ -804,7 +804,7 @@ static void intern_decompress_input(struct caml_intern_state * s,
   if (inflateInit(&zs) != Z_OK) {
     intern_cleanup(s);
     intern_failwith2(fun_name, "decompression error");
-  }    
+  }
   unsigned char * blk = caml_stat_alloc_noexc(h->uncompressed_data_len);
   if (blk == NULL) {
     intern_cleanup(s);

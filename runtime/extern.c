@@ -915,7 +915,7 @@ static void extern_rec(struct caml_extern_state* s, value v)
 
 #ifdef HAS_ZLIB
 
-void extern_compress_output(struct caml_extern_state* s)
+static void extern_compress_output(struct caml_extern_state* s)
 {
   z_stream zs;
   struct output_block * input, * output, * output_head;
