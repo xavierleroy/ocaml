@@ -17989,9 +17989,11 @@ rm -f core conftest.err conftest.$ac_objext conftest.beam conftest.$ac_ext
 
 if test x"$with_zstd" = "xyes"
 then :
-  if zstd_libs=`pkg-config --libs libzstd 2>/dev/null` && zstd_flags=`pkg-config --cflags libzstd 2>/dev/null`
+  if pkg-config --atleast-version 1.4 libzstd 2>/dev/null
 then :
-  cclibs="$cclibs $zstd_libs"
+  zstd_libs=`pkg-config --libs libzstd`
+     zstd_flags=`pkg-config --cflags libzstd`
+     cclibs="$cclibs $zstd_libs"
      internal_cppflags="$internal_cppflags $zstd_flags"
      printf "%s\n" "#define HAS_ZSTD 1" >>confdefs.h
 

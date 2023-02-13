@@ -1938,9 +1938,10 @@ AC_COMPILE_IFELSE(
 ## ZSTD compression library
 
 AS_IF([test x"$with_zstd" = "xyes"],
-  AS_IF(m4_normalize([zstd_libs=`pkg-config --libs libzstd 2>/dev/null`
-                   && zstd_flags=`pkg-config --cflags libzstd 2>/dev/null`]),
-    [cclibs="$cclibs $zstd_libs"
+  AS_IF([pkg-config --atleast-version 1.4 libzstd 2>/dev/null],
+    [zstd_libs=`pkg-config --libs libzstd`
+     zstd_flags=`pkg-config --cflags libzstd`
+     cclibs="$cclibs $zstd_libs"
      internal_cppflags="$internal_cppflags $zstd_flags"
      AC_DEFINE([HAS_ZSTD])],
     [AC_MSG_WARN([zstd not found: compressed marshaling support disabled.])]))
