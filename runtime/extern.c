@@ -33,8 +33,8 @@
 #include "caml/mlvalues.h"
 #include "caml/reverse.h"
 #include "caml/shared_heap.h"
-#ifdef HAS_ZLIB
-#include <zlib.h>
+#ifdef HAS_ZSTD
+#include <zstd.h>
 #endif
 
 /* Flags affecting marshaling */
@@ -476,7 +476,7 @@ Caml_inline void store64(char * dst, int64_t n)
   dst[4] = n >> 24;  dst[5] = n >> 16;  dst[6] = n >> 8;   dst[7] = n;
 }
 
-#ifdef HAS_ZLIB
+#ifdef HAS_ZSTD
 static int storevlq(char * dst, uintnat n)
 {
   /* Find number of base-128 digits (always at least one) */
@@ -913,66 +913,67 @@ static void extern_rec(struct caml_extern_state* s, value v)
 
 /* Compress the output */
 
-#ifdef HAS_ZLIB
+#ifdef HAS_ZSTD
 
 static void extern_compress_output(struct caml_extern_state* s)
 {
-  z_stream zs;
+  ZSTD_CCtx * ctx;
+  ZSTD_inBuffer in;
+  ZSTD_outBuffer out;
   struct output_block * input, * output, * output_head;
   int rc;
 
-  zs.zalloc = NULL; zs.zfree = NULL; zs.opaque = NULL;
-  rc = deflateInit(&zs, 7);
-  if (rc != Z_OK) extern_out_of_memory(s);
+  ctx = ZSTD_createCCtx();
+  if (ctx == NULL) extern_out_of_memory(s);
   input = s->extern_output_first;
   output_head = caml_stat_alloc_noexc(sizeof(struct output_block));
-  if (output_head == NULL) goto oom;
+  if (output_head == NULL) goto oom1;
   output = output_head;
   output->next = NULL;
-  zs.next_in = (Bytef *) input->data;
-  zs.avail_in = input->end - input->data;
-  zs.next_out = (Bytef *) output->data;
-  zs.avail_out = SIZE_EXTERN_OUTPUT_BLOCK;
+  in.src = input->data; in.size = input->end - input->data; in.pos = 0;
+  out.dst = output->data; out.size = SIZE_EXTERN_OUTPUT_BLOCK; out.pos = 0;
   do {
-    if (zs.avail_out == 0) {
-      output->end = (char *) zs.next_out;
+    if (out.pos == out.size) {
+      output->end = output->data + out.pos;
       /* Allocate fresh output block */
       struct output_block * next =
         caml_stat_alloc_noexc(sizeof(struct output_block));
-      if (next == NULL) goto oom;
+      if (next == NULL) goto oom2;
       output->next = next;
       output = next;
       output->next = NULL;
-      zs.next_out = (Bytef *) output->data;
-      zs.avail_out = SIZE_EXTERN_OUTPUT_BLOCK;
+      out.dst = output->data; out.size = SIZE_EXTERN_OUTPUT_BLOCK; out.pos = 0;
     }
-    if (zs.avail_in == 0 && input != NULL) {
+    if (in.pos == in.size && input != NULL) {
       /* Move to next input block and free current input block */
       struct output_block * next = input->next;
       caml_stat_free(input);
       input = next;
       if (input != NULL) {
-        zs.next_in = (Bytef *) input->data;
-        zs.avail_in = input->end - input->data;
+        in.src = input->data; in.size = input->end - input->data;
       } else {
-        zs.next_in = NULL;
-        zs.avail_in = 0;
+        in.src = NULL; in.size = 0;
       }
+      in.pos = 0;
     }
-    rc = deflate(&zs, input == NULL ? Z_FINISH : Z_NO_FLUSH);
-  } while (! (input == NULL && rc == Z_STREAM_END));
-  output->end = (char *) zs.next_out;
-  deflateEnd(&zs);
+    rc = ZSTD_compressStream2(ctx, &out, &in,
+                              input == NULL ? ZSTD_e_end : ZSTD_e_continue);
+  } while (! (input == NULL && rc == 0));
+  output->end = output->data + out.pos;
   s->extern_output_first = output_head;
+  ZSTD_freeCCtx(ctx);
   return;
-oom:
-  deflateEnd(&zs);
+oom2:
+  /* The old output blocks that remain to be freed */
+  s->extern_output_first = input;
   /* Free the new output blocks */
   for (output = output_head; output != NULL; ) {
     struct output_block * next = output->next;
     caml_stat_free(output);
     output = next;
   }
+oom1:
+  ZSTD_freeCCtx(ctx);
   extern_out_of_memory(s);
 }
 
@@ -991,7 +992,7 @@ static intnat extern_value(struct caml_extern_state* s, value v, value flags,
   s->extern_flags = caml_convert_flag_list(flags, extern_flag_values);
   /* Turn compression off if Zlib missing or if called from
      caml_output_value_to_block */
-#ifdef HAS_ZLIB
+#ifdef HAS_ZSTD
   if (s->extern_userprovided_output) s->extern_flags &= ~COMPRESSED;
 #else
   s->extern_flags &= ~COMPRESSED;
@@ -1005,7 +1006,7 @@ static intnat extern_value(struct caml_extern_state* s, value v, value flags,
   /* Record end of output */
   close_extern_output(s);
   /* Compress if requested */
-#ifdef HAS_ZLIB
+#ifdef HAS_ZSTD
   if (s->extern_flags & COMPRESSED) {
     uintnat uncompressed_len = extern_output_length(s);
     extern_compress_output(s);

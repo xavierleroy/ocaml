@@ -471,11 +471,11 @@ AC_ARG_WITH([flexdll],
     [bootstrap FlexDLL from the given sources])],
   [AS_IF([test x"$withval" = 'xyes'],[with_flexdll=flexdll])])
 
-AC_ARG_WITH([zlib],
-  [AS_HELP_STRING([--without-zlib],
+AC_ARG_WITH([zstd],
+  [AS_HELP_STRING([--without-zstd],
     [disable compression of marshaled data])],
   [],
-  [with_zlib=yes])
+  [with_zstd=yes])
 
 AS_IF([test x"$enable_unix_lib" = "xno"],
   [AS_IF([test x"$enable_debugger" = "xyes"],
@@ -1935,15 +1935,15 @@ AC_COMPILE_IFELSE(
         pthread_getaffinity_np(pthread_self(), sizeof(cs), &cs);]])],
     [AC_DEFINE([HAS_BSD_GETAFFINITY_NP])])])
 
-## Zlib compression library
+## ZSTD compression library
 
-AS_IF([test x"$with_zlib" = "xyes"],
-  AS_IF(m4_normalize([zlib_libs=`pkg-config --libs zlib 2>/dev/null`
-                   && zlib_flags=`pkg-config --cflags zlib 2>/dev/null`]),
-    [cclibs="$cclibs $zlib_libs"
-     internal_cppflags="$internal_cppflags $zlib_flags"
-     AC_DEFINE([HAS_ZLIB])],
-    [AC_MSG_WARN([zlib not found: compressed marshaling support disabled.])]))
+AS_IF([test x"$with_zstd" = "xyes"],
+  AS_IF(m4_normalize([zstd_libs=`pkg-config --libs libzstd 2>/dev/null`
+                   && zstd_flags=`pkg-config --cflags libzstd 2>/dev/null`]),
+    [cclibs="$cclibs $zstd_libs"
+     internal_cppflags="$internal_cppflags $zstd_flags"
+     AC_DEFINE([HAS_ZSTD])],
+    [AC_MSG_WARN([zstd not found: compressed marshaling support disabled.])]))
 
 ## Determine whether the debugger should/can be built
 

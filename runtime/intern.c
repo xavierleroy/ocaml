@@ -37,8 +37,8 @@
 #include "caml/reverse.h"
 #include "caml/shared_heap.h"
 #include "caml/signals.h"
-#ifdef HAS_ZLIB
-#include <zlib.h>
+#ifdef HAS_ZSTD
+#include <zstd.h>
 #endif
 
 /* Item on the stack with defined operation */
@@ -798,25 +798,15 @@ static void intern_decompress_input(struct caml_intern_state * s,
 {
   s->compressed = h->compressed;
   if (! h->compressed) return;
-#ifdef HAS_ZLIB
-  z_stream zs;
-  zs.zalloc = NULL; zs.zfree = NULL; zs.opaque = NULL;
-  if (inflateInit(&zs) != Z_OK) {
-    intern_cleanup(s);
-    intern_failwith2(fun_name, "decompression error");
-  }
+#ifdef HAS_ZSTD
   unsigned char * blk = caml_stat_alloc_noexc(h->uncompressed_data_len);
   if (blk == NULL) {
     intern_cleanup(s);
     caml_raise_out_of_memory();
   }
-  zs.next_in = (Bytef *) s->intern_src;
-  zs.avail_in = h->data_len;
-  zs.next_out = (Bytef *) blk;
-  zs.avail_out = h->uncompressed_data_len;
-  int rc = inflate(&zs, Z_FINISH);
-  inflateEnd(&zs);
-  if (rc != Z_STREAM_END) {
+  size_t res =
+    ZSTD_decompress(blk, h->uncompressed_data_len, s->intern_src, h->data_len);
+  if (res != h->uncompressed_data_len) {
     caml_stat_free(blk);
     intern_cleanup(s);
     intern_failwith2(fun_name, "decompression error");
@@ -980,7 +970,7 @@ CAMLexport value caml_input_value_from_block(const char * data, intnat len)
    - for the "big" model: the length is at positions 8 to 15
    - for the "compressed" model: the length is at positions 5 to at most 14
    16 bytes is not too much because the smallest marshalled object
-   is 19 bytes long (a small integer in the "compressed" model),
+   is 20 bytes long (a small integer in the "compressed" model),
    so we're not reading past the end of the data.
  */
 
