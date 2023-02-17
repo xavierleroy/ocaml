@@ -56,7 +56,8 @@ type extern_flags =
     No_sharing                          (** Don't preserve sharing *)
   | Closures                            (** Send function closures *)
   | Compat_32                           (** Ensure 32-bit compatibility *)
-  | Compression                         (** Compress the output if possible *)
+  | Compression                         (** Compress the output if possible
+                                            @since 5.1 *)
 (** The flags to the [Marshal.to_*] functions below. *)
 
 val to_channel : out_channel -> 'a -> extern_flags list -> unit
@@ -121,6 +122,8 @@ val to_channel : out_channel -> 'a -> extern_flags list -> unit
    only matters when marshaling is performed on a 64-bit platform;
    it has no effect if marshaling is performed on a 32-bit platform.
    @raise Failure if [chan] is not in binary mode.
+
+   @before 5.1 Compression mode was not supported
  *)
 
 external to_bytes :
@@ -195,3 +198,24 @@ val data_size : bytes -> int -> int
 
 val total_size : bytes -> int -> int
 (** See {!Marshal.header_size}.*)
+
+val compression_supported : unit -> bool
+(** Indicates whether the compressed data format is supported.
+
+    If [Marshal.compression_supported()] is [true], compressed data
+    is unmarshaled safely by {!input_value}, {!Marshal.from_channel},
+    {!Marshal.from_string} and related functions.  Moreover, the
+    [Marshal.Compression] flag is honored by the {!Marshal.to_channel},
+    {!Marshal.to_string} and related functions, resulting in the
+    production of compressed data.
+
+    If [Marshal.compression_supported()] is [false], compressed data
+    causes {!input_value}, {!Marshal.from_channel},
+    {!Marshal.from_string} and related functions to fail and a
+    [Failure] exception to be raised.  Moreover,
+    {!Marshal.to_channel}, {!Marshal.to_string} and related functions
+    ignore the [Marshal.Compression] flag and produce uncompressed
+    data.
+
+    @since 5.1
+*)
