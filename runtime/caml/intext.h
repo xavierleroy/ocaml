@@ -46,14 +46,14 @@
       24   size in words when read on a 64-bit platform
    The 3 numbers are 64 bits each, in big endian.
 
-  Header format for the "compressed" model:
+  Header format for the "compressed" model: 10 to 55 bytes
        0   "compressed" magic number
        4   low 6 bits: total size of the header
            high 2 bits: reserved, currently 0
        5 and following
            5 variable-length integers, in VLQ format (1 to 10 bytes each)
-           - length of compressed marshaled data
-           - length of uncompressed marshaled data
+           - length of compressed marshaled data, in bytes
+           - length of uncompressed marshaled data, in bytes
            - number of shared blocks
            - size in words when read on a 32-bit platform
            - size in words when read on a 64-bit platform
