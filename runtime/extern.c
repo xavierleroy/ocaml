@@ -1019,7 +1019,6 @@ static intnat extern_value(struct caml_extern_state* s, value v, value flags,
     len = storevlq(header + pos, s->obj_counter); pos += len;
     len = storevlq(header + pos, s->size_32); pos += len;
     len = storevlq(header + pos, s->size_64); pos += len;
-    CAMLassert(len < 64);
     header[4] = pos;
     *header_len = pos;
     return res_len;
