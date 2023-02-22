@@ -1938,13 +1938,30 @@ AC_COMPILE_IFELSE(
 ## ZSTD compression library
 
 AS_IF([test x"$with_zstd" = "xyes"],
-  AS_IF([pkg-config --atleast-version 1.4 libzstd 2>/dev/null],
-    [zstd_libs=`pkg-config --libs libzstd`
-     zstd_flags=`pkg-config --cflags libzstd`
-     cclibs="$cclibs $zstd_libs"
-     internal_cppflags="$internal_cppflags $zstd_flags"
-     AC_DEFINE([HAS_ZSTD])],
-    [AC_MSG_WARN([zstd not found: compressed marshaling support disabled.])]))
+  # Try pkg-config first, as it gives the most reliable results
+  AS_IF([pkg-config libzstd 2>/dev/null],
+    # Now check the version
+    [AS_IF([pkg-config --atleast-version 1.4 libzstd],
+      [AC_MSG_NOTICE([compressed marshaling supported])
+       zstd_libs=`pkg-config --libs libzstd`
+       zstd_flags=`pkg-config --cflags libzstd`
+       cclibs="$cclibs $zstd_libs"
+       internal_cppflags="$internal_cppflags $zstd_flags"
+       AC_DEFINE([HAS_ZSTD])],
+      [AC_MSG_WARN([zstd library too old: version 1.4 or later is needed])
+       AC_MSG_WARN([compressed marshaling not supported])])],
+  # Otherwise, try to find zstd the old way,
+  # assuming it is installed in default places
+    [AC_CHECK_LIB([zstd], [ZSTD_createCCtx],
+      [AC_CHECK_DECL([ZSTD_compressStream2],
+        [AC_MSG_NOTICE([compressed marshaling supported])
+         cclibs="$cclibs -lzstd"
+         AC_DEFINE([HAS_ZSTD])],
+        [AC_MSG_WARN([zstd library too old: version 1.4 or later is needed])
+         AC_MSG_WARN([compressed marshaling not supported])],
+        [[#include <zstd.h>]])],
+      [AC_MSG_WARN([zstd library not found.])
+       AC_MSG_WARN([compressed marshaling not supported])])]))
 
 ## Determine whether the debugger should/can be built
 

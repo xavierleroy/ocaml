@@ -17989,17 +17989,88 @@ rm -f core conftest.err conftest.$ac_objext conftest.beam conftest.$ac_ext
 
 if test x"$with_zstd" = "xyes"
 then :
-  if pkg-config --atleast-version 1.4 libzstd 2>/dev/null
+  # Try pkg-config first, as it gives the most reliable results
+  if pkg-config libzstd 2>/dev/null
 then :
-  zstd_libs=`pkg-config --libs libzstd`
-     zstd_flags=`pkg-config --cflags libzstd`
-     cclibs="$cclibs $zstd_libs"
-     internal_cppflags="$internal_cppflags $zstd_flags"
-     printf "%s\n" "#define HAS_ZSTD 1" >>confdefs.h
+  # Now check the version
+    if pkg-config --atleast-version 1.4 libzstd
+then :
+  { printf "%s\n" "$as_me:${as_lineno-$LINENO}: compressed marshaling supported" >&5
+printf "%s\n" "$as_me: compressed marshaling supported" >&6;}
+       zstd_libs=`pkg-config --libs libzstd`
+       zstd_flags=`pkg-config --cflags libzstd`
+       cclibs="$cclibs $zstd_libs"
+       internal_cppflags="$internal_cppflags $zstd_flags"
+       printf "%s\n" "#define HAS_ZSTD 1" >>confdefs.h
 
 else $as_nop
-  { printf "%s\n" "$as_me:${as_lineno-$LINENO}: WARNING: zstd not found: compressed marshaling support disabled." >&5
-printf "%s\n" "$as_me: WARNING: zstd not found: compressed marshaling support disabled." >&2;}
+  { printf "%s\n" "$as_me:${as_lineno-$LINENO}: WARNING: zstd library too old: version 1.4 or later is needed" >&5
+printf "%s\n" "$as_me: WARNING: zstd library too old: version 1.4 or later is needed" >&2;}
+       { printf "%s\n" "$as_me:${as_lineno-$LINENO}: WARNING: compressed marshaling not supported" >&5
+printf "%s\n" "$as_me: WARNING: compressed marshaling not supported" >&2;}
+fi
+else $as_nop
+  # Otherwise, try to find zstd the old way,
+  # assuming it is installed in default places
+    { printf "%s\n" "$as_me:${as_lineno-$LINENO}: checking for ZSTD_createCCtx in -lzstd" >&5
+printf %s "checking for ZSTD_createCCtx in -lzstd... " >&6; }
+if test ${ac_cv_lib_zstd_ZSTD_createCCtx+y}
+then :
+  printf %s "(cached) " >&6
+else $as_nop
+  ac_check_lib_save_LIBS=$LIBS
+LIBS="-lzstd  $LIBS"
+cat confdefs.h - <<_ACEOF >conftest.$ac_ext
+/* end confdefs.h.  */
+
+/* Override any GCC internal prototype to avoid an error.
+   Use char because int might match the return type of a GCC
+   builtin and then its argument prototype would still apply.  */
+char ZSTD_createCCtx ();
+int
+main (void)
+{
+return ZSTD_createCCtx ();
+  ;
+  return 0;
+}
+_ACEOF
+if ac_fn_c_try_link "$LINENO"
+then :
+  ac_cv_lib_zstd_ZSTD_createCCtx=yes
+else $as_nop
+  ac_cv_lib_zstd_ZSTD_createCCtx=no
+fi
+rm -f core conftest.err conftest.$ac_objext conftest.beam \
+    conftest$ac_exeext conftest.$ac_ext
+LIBS=$ac_check_lib_save_LIBS
+fi
+{ printf "%s\n" "$as_me:${as_lineno-$LINENO}: result: $ac_cv_lib_zstd_ZSTD_createCCtx" >&5
+printf "%s\n" "$ac_cv_lib_zstd_ZSTD_createCCtx" >&6; }
+if test "x$ac_cv_lib_zstd_ZSTD_createCCtx" = xyes
+then :
+  ac_fn_check_decl "$LINENO" "ZSTD_compressStream2" "ac_cv_have_decl_ZSTD_compressStream2" "#include <zstd.h>
+" "$ac_c_undeclared_builtin_options" "CFLAGS"
+if test "x$ac_cv_have_decl_ZSTD_compressStream2" = xyes
+then :
+  { printf "%s\n" "$as_me:${as_lineno-$LINENO}: compressed marshaling supported" >&5
+printf "%s\n" "$as_me: compressed marshaling supported" >&6;}
+         cclibs="$cclibs -lzstd"
+         printf "%s\n" "#define HAS_ZSTD 1" >>confdefs.h
+
+else $as_nop
+  { printf "%s\n" "$as_me:${as_lineno-$LINENO}: WARNING: zstd library too old: version 1.4 or later is needed" >&5
+printf "%s\n" "$as_me: WARNING: zstd library too old: version 1.4 or later is needed" >&2;}
+         { printf "%s\n" "$as_me:${as_lineno-$LINENO}: WARNING: compressed marshaling not supported" >&5
+printf "%s\n" "$as_me: WARNING: compressed marshaling not supported" >&2;}
+fi
+else $as_nop
+  { printf "%s\n" "$as_me:${as_lineno-$LINENO}: WARNING: zstd library not found." >&5
+printf "%s\n" "$as_me: WARNING: zstd library not found." >&2;}
+       { printf "%s\n" "$as_me:${as_lineno-$LINENO}: WARNING: compressed marshaling not supported" >&5
+printf "%s\n" "$as_me: WARNING: compressed marshaling not supported" >&2;}
+fi
+
 fi
 fi
 
