@@ -1002,7 +1002,7 @@ CAMLprim value caml_marshal_data_size(value buff, value ofs)
     header_len = read8u(s) & 0x3F;
     if (readvlq(s, &data_len) != 0)
       caml_failwith("Marshal.data_size: "
-                    "object too large to be read back on a 32-bit platform");
+                    "object too large to be read back on this platform");
     break;
   default:
     caml_failwith("Marshal.data_size: bad object");
