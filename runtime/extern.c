@@ -1011,6 +1011,18 @@ static intnat extern_value(struct caml_extern_state* s, value v, value flags,
     uintnat uncompressed_len = extern_output_length(s);
     extern_compress_output(s);
     res_len = extern_output_length(s);
+    /* Check lengths if compat32 mode is requested */
+#ifdef ARCH_SIXTYFOUR
+    if (s->extern_flags & COMPAT_32
+        && (uncompressed_len >= (uintnat)1 << 32
+            || res_len >= (uintnat)1 << 32
+            || s->size_32 >= (uintnat)1 << 32
+            || s->size_64 >= (uintnat)1 << 32)) {
+      free_extern_output(s);
+      caml_failwith("output_value: object too big to be read back on "
+                    "32-bit platform");
+    }
+#endif
     /* Write the header in compressed format */
     store32(header, Intext_magic_number_compressed);
     int pos = 5, len;
