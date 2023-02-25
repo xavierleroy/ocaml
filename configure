@@ -3927,8 +3927,6 @@ fi
 if test ${with_zstd+y}
 then :
   withval=$with_zstd;
-else $as_nop
-  with_zstd=yes
 fi
 
 
@@ -17987,7 +17985,8 @@ rm -f core conftest.err conftest.$ac_objext conftest.beam conftest.$ac_ext
 
 ## ZSTD compression library
 
-if test x"$with_zstd" = "xyes"
+zstd_status=""
+if test x"$with_zstd" != "xno"
 then :
   # Try pkg-config first, as it gives the most reliable results
   if pkg-config libzstd 2>/dev/null
@@ -17995,19 +17994,11 @@ then :
   # Now check the version
     if pkg-config --atleast-version 1.4 libzstd
 then :
-  { printf "%s\n" "$as_me:${as_lineno-$LINENO}: compressed marshaling supported" >&5
-printf "%s\n" "$as_me: compressed marshaling supported" >&6;}
-       zstd_libs=`pkg-config --libs libzstd`
+  zstd_libs=`pkg-config --libs libzstd`
        zstd_flags=`pkg-config --cflags libzstd`
-       cclibs="$cclibs $zstd_libs"
-       internal_cppflags="$internal_cppflags $zstd_flags"
-       printf "%s\n" "#define HAS_ZSTD 1" >>confdefs.h
-
+       zstd_status="ok"
 else $as_nop
-  { printf "%s\n" "$as_me:${as_lineno-$LINENO}: WARNING: zstd library too old: version 1.4 or later is needed" >&5
-printf "%s\n" "$as_me: WARNING: zstd library too old: version 1.4 or later is needed" >&2;}
-       { printf "%s\n" "$as_me:${as_lineno-$LINENO}: WARNING: compressed marshaling not supported" >&5
-printf "%s\n" "$as_me: WARNING: compressed marshaling not supported" >&2;}
+  zstd_status="zstd library too old: version 1.4 or later is needed"
 fi
 else $as_nop
   # Otherwise, try to find zstd the old way,
@@ -18053,25 +18044,39 @@ then :
 " "$ac_c_undeclared_builtin_options" "CFLAGS"
 if test "x$ac_cv_have_decl_ZSTD_compressStream2" = xyes
 then :
+  zstd_libs="-lzstd"
+         zstd_flags=""
+         zstd_status="ok"
+else $as_nop
+  zstd_status="zstd library too old: version 1.4 or later is needed"
+fi
+else $as_nop
+  zstd_status="zstd library not found"
+fi
+
+fi
+fi
+
+if test x"$zstd_status" = "xok"
+then :
   { printf "%s\n" "$as_me:${as_lineno-$LINENO}: compressed marshaling supported" >&5
 printf "%s\n" "$as_me: compressed marshaling supported" >&6;}
-         cclibs="$cclibs -lzstd"
-         printf "%s\n" "#define HAS_ZSTD 1" >>confdefs.h
+   cclibs="$cclibs $zstd_libs"
+   internal_cppflags="$internal_cppflags $zstd_flags"
+   printf "%s\n" "#define HAS_ZSTD 1" >>confdefs.h
 
 else $as_nop
-  { printf "%s\n" "$as_me:${as_lineno-$LINENO}: WARNING: zstd library too old: version 1.4 or later is needed" >&5
-printf "%s\n" "$as_me: WARNING: zstd library too old: version 1.4 or later is needed" >&2;}
-         { printf "%s\n" "$as_me:${as_lineno-$LINENO}: WARNING: compressed marshaling not supported" >&5
-printf "%s\n" "$as_me: WARNING: compressed marshaling not supported" >&2;}
-fi
-else $as_nop
-  { printf "%s\n" "$as_me:${as_lineno-$LINENO}: WARNING: zstd library not found." >&5
-printf "%s\n" "$as_me: WARNING: zstd library not found." >&2;}
-       { printf "%s\n" "$as_me:${as_lineno-$LINENO}: WARNING: compressed marshaling not supported" >&5
-printf "%s\n" "$as_me: WARNING: compressed marshaling not supported" >&2;}
-fi
-
-fi
+  case "$with_zstd" in #(
+  no) :
+     ;; #(
+  yes) :
+    as_fn_error $? "$zstd_status" "$LINENO" 5 ;; #(
+  *) :
+    { printf "%s\n" "$as_me:${as_lineno-$LINENO}: WARNING: $zstd_status" >&5
+printf "%s\n" "$as_me: WARNING: $zstd_status" >&2;}
+      { printf "%s\n" "$as_me:${as_lineno-$LINENO}: WARNING: compressed marshaling not supported" >&5
+printf "%s\n" "$as_me: WARNING: compressed marshaling not supported" >&2;} ;;
+esac
 fi
 
 ## Determine whether the debugger should/can be built
