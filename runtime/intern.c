@@ -722,7 +722,7 @@ struct marshal_header {
   int compressed;
 };
 
-static void intern_failwith2(char * fun_name, char * msg)
+static void intern_failwith2(const char * fun_name, const char * msg)
 {
   char errmsg[100];
   errmsg[sizeof(errmsg) - 1] = 0;
@@ -731,7 +731,7 @@ static void intern_failwith2(char * fun_name, char * msg)
 }
 
 static void caml_parse_header(struct caml_intern_state* s,
-                              char * fun_name,
+                              const char * fun_name,
                               /*out*/ struct marshal_header * h)
 {
   h->magic = read32u(s);
@@ -793,7 +793,7 @@ static void caml_parse_header(struct caml_intern_state* s,
     before more memory is allocated). */
 
 static void intern_decompress_input(struct caml_intern_state * s,
-                                    char * fun_name,
+                                    const char * fun_name,
                                     struct marshal_header * h)
 {
   s->compressed = h->compressed;
