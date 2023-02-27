@@ -809,7 +809,10 @@ static void intern_decompress_input(struct caml_intern_state * s,
   if (res != h->uncompressed_data_len) {
     caml_stat_free(blk);
     intern_cleanup(s);
-    intern_failwith2(fun_name, "decompression error");
+    intern_failwith2(fun_name,
+                     ZSTD_isError(res)
+                     ? ZSTD_getErrorName(res)
+                     : "wrong length for decompressed data");
   }
   if (s->intern_input != NULL) caml_stat_free(s->intern_input);
   s->intern_input = blk;  /* to be freed at end of demarshaling */
