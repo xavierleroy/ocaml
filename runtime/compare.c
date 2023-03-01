@@ -25,7 +25,7 @@
 
 /* Structural comparison on trees. */
 
-struct compare_item { value v1, v2; uintnat offset; };
+struct compare_item { value v1, v2; uintnat offset; uintnat size; };
 
 #define COMPARE_STACK_INIT_SIZE 8
 #define COMPARE_STACK_MIN_ALLOC_SIZE 32
@@ -283,6 +283,7 @@ static intnat do_compare_val(struct compare_stack* stk,
         sp->v1 = v1;
         sp->v2 = v2;
         sp->offset = 1;
+        sp->size = sz1;
       }
       /* Continue comparison with first field */
       v1 = Field(v1, 0);
@@ -295,7 +296,7 @@ static intnat do_compare_val(struct compare_stack* stk,
     if (sp == stk->stack) return EQUAL; /* we're done */
     v1 = Field(sp->v1, sp->offset);
     v2 = Field(sp->v2, sp->offset);
-    if (++(sp->offset) == Wosize_val(sp->v1)) sp--;
+    if (++(sp->offset) == sp->size) sp--;
   }
 }
 
