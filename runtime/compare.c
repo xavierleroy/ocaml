@@ -309,6 +309,8 @@ static intnat do_compare_val(struct compare_stack* stk,
         exn = caml_do_pending_actions_exn();
         End_roots();
         if (Is_exception_result(exn)) {
+          exn = Extract_exception(exn);
+          compare_free_stack(stk);
           caml_raise(exn);
         }
       }
