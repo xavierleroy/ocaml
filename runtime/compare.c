@@ -31,6 +31,8 @@ struct compare_item { value v1, v2, offset, size; };
 #define COMPARE_STACK_MIN_ALLOC_SIZE 32
 #define COMPARE_STACK_MAX_SIZE (1024*1024)
 
+#define COMPARE_SIGNAL_POLL_PERIOD 1024
+
 struct compare_stack {
   struct compare_item init_stack[COMPARE_STACK_INIT_SIZE];
   struct compare_item* stack;
@@ -118,6 +120,7 @@ static intnat do_compare_val(struct compare_stack* stk,
 {
   struct compare_item * sp;
   tag_t t1, t2;
+  int signal_poll_timer = 0;
 
   sp = stk->stack;
   while (1) {
@@ -294,6 +297,23 @@ static intnat do_compare_val(struct compare_stack* stk,
   next_item:
     /* Pop one more item to compare, if any */
     if (sp == stk->stack) return EQUAL; /* we're done */
+
+    /* Periodically poll for actions, since this loop can run for
+       unbounded time. */
+    if (++signal_poll_timer >= COMPARE_SIGNAL_POLL_PERIOD) {
+      signal_poll_timer = 0;
+      if (caml_check_pending_actions()) {
+        value exn;
+        Begin_roots_block((value*)(stk->stack),
+                          (stk->limit - stk->stack) * sizeof(struct compare_stack) / sizeof(value));
+        exn = caml_do_pending_actions_exn();
+        End_roots();
+        if (Is_exception_result(exn)) {
+          caml_raise(exn);
+        }
+      }
+    }
+
     v1 = Field(sp->v1, Long_val(sp->offset));
     v2 = Field(sp->v2, Long_val(sp->offset));
     sp->offset += 2;/* Long_val(sp->offset) += 1 */
@@ -304,7 +324,6 @@ static intnat do_compare_val(struct compare_stack* stk,
 CAMLprim value caml_compare(value v1, value v2)
 {
   intnat res = compare_val(v1, v2, 1);
-  /* Free stack if needed */
   if (res < 0)
     return Val_int(LESS);
   else if (res > 0)
