@@ -112,7 +112,7 @@ static void poll_pending_actions(struct compare_stack* stk, struct compare_item*
     } else {
       CAMLassert(sp > stk->stack);
       Begin_roots_block((value*)(stk->stack + 1),
-                        (sp - stk->stack - 1) * sizeof(struct compare_stack) / sizeof(value));
+                        (sp - stk->stack - 1) * sizeof(struct compare_item) / sizeof(value));
       exn = caml_do_pending_actions_exn();
       End_roots();
     }
