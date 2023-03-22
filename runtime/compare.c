@@ -32,6 +32,7 @@ struct compare_item { value v1, v2, offset, size; };
 #define COMPARE_STACK_MAX_SIZE (1024*1024)
 
 #define COMPARE_SIGNAL_POLL_PERIOD 1024
+#define COMPARE_MUST_POLL(timer) (CAMLunlikely(timer >= COMPARE_SIGNAL_POLL_PERIOD))
 
 struct compare_stack {
   struct compare_item init_stack[COMPARE_STACK_INIT_SIZE];
@@ -296,17 +297,17 @@ static intnat do_compare_val(struct compare_stack* stk,
       if (sz1 != sz2) return sz1 - sz2;
       if (sz1 == 0) break;
       /* Remember that we still have to compare fields 1 ... sz - 1. */
-      if (sz1 > 1 || CAMLunlikely(signal_poll_timer >= COMPARE_SIGNAL_POLL_PERIOD)) {
+      if (sz1 > 1 || COMPARE_MUST_POLL(signal_poll_timer)) {
+        /* In the special case where we must poll, we always push the
+           whole blocks to the compare stack, and break (the switch)
+           to the poll point below instead of continuing at the
+           top. */
         sp++;
         if (sp >= stk->limit) sp = compare_resize_stack(stk, sp);
         sp->v1 = v1;
         sp->v2 = v2;
         sp->size = Val_long(sz1);
-        if (CAMLunlikely(sz1 == 1)) {
-          /* We have (sz1 == 1) when we must poll; in this case we
-             want to also include the first field in the compare
-             stack, and jump to the poll site below instead of
-             continuing at the top. */
+        if (COMPARE_MUST_POLL(signal_poll_timer)) {
           sp->offset = Val_long(0);
           break;
         } else {
@@ -320,11 +321,13 @@ static intnat do_compare_val(struct compare_stack* stk,
     }
     }
 
-    if (CAMLunlikely(signal_poll_timer >= COMPARE_SIGNAL_POLL_PERIOD)) {
-      signal_poll_timer = 0;
+    /* Periodically poll for actions, since this loop can run for
+       unbounded time. */
+    if (COMPARE_MUST_POLL(signal_poll_timer)) {
       /* At this point v1, v2 need not be rooted, they are about to be
          reloaded from the compare stack below. */
       poll_pending_actions(stk);
+      signal_poll_timer = 0;
     }
 
   next_item:
