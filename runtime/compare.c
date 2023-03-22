@@ -111,8 +111,8 @@ static void poll_pending_actions(struct compare_stack* stk, struct compare_item*
       exn = caml_do_pending_actions_exn();
     } else {
       CAMLassert(sp > stk->stack);
-      Begin_roots_block((value*)(stk->stack + 1),
-                        (sp - stk->stack - 1) * sizeof(struct compare_item) / sizeof(value));
+      Begin_roots_block((value*)(stk->stack),
+                        (sp - stk->stack) * sizeof(struct compare_item) / sizeof(value));
       exn = caml_do_pending_actions_exn();
       End_roots();
     }
@@ -141,11 +141,11 @@ static void poll_pending_actions(struct compare_stack* stk, struct compare_item*
 static intnat do_compare_val(struct compare_stack* stk,
                              value v1, value v2, int total)
 {
-  struct compare_item * sp;
+  struct compare_item * next_stack_slot;
   tag_t t1, t2;
   int signal_poll_timer = 0;
 
-  sp = stk->stack;
+  next_stack_slot = stk->stack;
   while (1) {
     ++signal_poll_timer;
     if (v1 == v2 && total) goto next_item;
@@ -309,8 +309,10 @@ static intnat do_compare_val(struct compare_stack* stk,
            whole blocks to the compare stack, and break (the switch)
            to the poll point below instead of continuing at the
            top. */
-        sp++;
-        if (sp >= stk->limit) sp = compare_resize_stack(stk, sp);
+        if (next_stack_slot >= stk->limit)
+          next_stack_slot = compare_resize_stack(stk, next_stack_slot);
+        struct compare_item*sp = next_stack_slot;
+        next_stack_slot ++;
         sp->v1 = v1;
         sp->v2 = v2;
         sp->size = Val_long(sz1);
@@ -333,18 +335,19 @@ static intnat do_compare_val(struct compare_stack* stk,
     if (COMPARE_MUST_POLL(signal_poll_timer)) {
       /* At this point v1, v2 need not be rooted, they are about to be
          reloaded from the compare stack below. */
-      poll_pending_actions(stk, sp);
+      poll_pending_actions(stk, next_stack_slot);
       signal_poll_timer = 0;
     }
 
   next_item:
     /* Pop one more item to compare, if any */
-    if (sp == stk->stack) return EQUAL; /* we're done */
+    if (next_stack_slot == stk->stack) return EQUAL; /* we're done */
 
+    struct compare_item*sp = next_stack_slot-1;
     v1 = Field(sp->v1, Long_val(sp->offset));
     v2 = Field(sp->v2, Long_val(sp->offset));
     sp->offset += 2;/* Long_val(sp->offset) += 1 */
-    if (sp->offset == sp->size) sp--;
+    if (sp->offset == sp->size) next_stack_slot--;
   }
 }
 
