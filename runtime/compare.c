@@ -101,6 +101,22 @@ static intnat compare_val(value v1, value v2, int total)
   return res;
 }
 
+static void poll_pending_actions(struct compare_stack* stk)
+{
+  if (caml_check_pending_actions()) {
+    value exn;
+    Begin_roots_block((value*)(stk->stack),
+                      (stk->limit - stk->stack) * sizeof(struct compare_stack) / sizeof(value));
+    exn = caml_do_pending_actions_exn();
+    End_roots();
+    if (Is_exception_result(exn)) {
+      exn = Extract_exception(exn);
+      compare_free_stack(stk);
+      caml_raise(exn);
+    }
+  }
+}
+
 /* Structural comparison */
 
 
@@ -124,6 +140,12 @@ static intnat do_compare_val(struct compare_stack* stk,
 
   sp = stk->stack;
   while (1) {
+    /* Periodically poll for actions, since this loop can run for
+       unbounded time. */
+    if (CAMLunlikely(++signal_poll_timer >= COMPARE_SIGNAL_POLL_PERIOD)) {
+      signal_poll_timer = 0;
+      poll_pending_actions(stk);
+    }
     if (v1 == v2 && total) goto next_item;
     if (Is_long(v1)) {
       if (v1 == v2) goto next_item;
@@ -297,24 +319,6 @@ static intnat do_compare_val(struct compare_stack* stk,
   next_item:
     /* Pop one more item to compare, if any */
     if (sp == stk->stack) return EQUAL; /* we're done */
-
-    /* Periodically poll for actions, since this loop can run for
-       unbounded time. */
-    if (++signal_poll_timer >= COMPARE_SIGNAL_POLL_PERIOD) {
-      signal_poll_timer = 0;
-      if (caml_check_pending_actions()) {
-        value exn;
-        Begin_roots_block((value*)(stk->stack),
-                          (stk->limit - stk->stack) * sizeof(struct compare_stack) / sizeof(value));
-        exn = caml_do_pending_actions_exn();
-        End_roots();
-        if (Is_exception_result(exn)) {
-          exn = Extract_exception(exn);
-          compare_free_stack(stk);
-          caml_raise(exn);
-        }
-      }
-    }
 
     v1 = Field(sp->v1, Long_val(sp->offset));
     v2 = Field(sp->v2, Long_val(sp->offset));
