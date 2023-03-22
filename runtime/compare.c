@@ -105,10 +105,17 @@ static void poll_pending_actions(struct compare_stack* stk, struct compare_item*
 {
   if (caml_check_pending_actions()) {
     value exn;
-    Begin_roots_block((value*)(stk->stack),
-                      (sp - stk->stack) * sizeof(struct compare_stack) / sizeof(value));
-    exn = caml_do_pending_actions_exn();
-    End_roots();
+    /* valid slots start at stk->stack + 1,
+       and stk->stack is a sentinel value to denote an empty compare stack. */
+    if (sp == stk->stack) {
+      exn = caml_do_pending_actions_exn();
+    } else {
+      CAMLassert(sp > stk->stack);
+      Begin_roots_block((value*)(stk->stack + 1),
+                        (sp - stk->stack - 1) * sizeof(struct compare_stack) / sizeof(value));
+      exn = caml_do_pending_actions_exn();
+      End_roots();
+    }
     if (Is_exception_result(exn)) {
       exn = Extract_exception(exn);
       compare_free_stack(stk);
