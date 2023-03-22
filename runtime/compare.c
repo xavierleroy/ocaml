@@ -101,12 +101,12 @@ static intnat compare_val(value v1, value v2, int total)
   return res;
 }
 
-static void poll_pending_actions(struct compare_stack* stk)
+static void poll_pending_actions(struct compare_stack* stk, struct compare_item* sp)
 {
   if (caml_check_pending_actions()) {
     value exn;
     Begin_roots_block((value*)(stk->stack),
-                      (stk->limit - stk->stack) * sizeof(struct compare_stack) / sizeof(value));
+                      (sp - stk->stack) * sizeof(struct compare_stack) / sizeof(value));
     exn = caml_do_pending_actions_exn();
     End_roots();
     if (Is_exception_result(exn)) {
@@ -326,7 +326,7 @@ static intnat do_compare_val(struct compare_stack* stk,
     if (COMPARE_MUST_POLL(signal_poll_timer)) {
       /* At this point v1, v2 need not be rooted, they are about to be
          reloaded from the compare stack below. */
-      poll_pending_actions(stk);
+      poll_pending_actions(stk, sp);
       signal_poll_timer = 0;
     }
 
