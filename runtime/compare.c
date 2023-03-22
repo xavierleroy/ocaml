@@ -101,18 +101,20 @@ static intnat compare_val(value v1, value v2, int total)
   return res;
 }
 
-static void poll_pending_actions(struct compare_stack* stk, struct compare_item* sp)
+static void poll_pending_actions(struct compare_stack* stk,
+                                 struct compare_item* next_stack_slot)
 {
   if (caml_check_pending_actions()) {
     value exn;
-    /* valid slots start at stk->stack + 1,
-       and stk->stack is a sentinel value to denote an empty compare stack. */
-    if (sp == stk->stack) {
+    if (next_stack_slot == stk->stack) {
       exn = caml_do_pending_actions_exn();
     } else {
-      CAMLassert(sp > stk->stack);
-      Begin_roots_block((value*)(stk->stack),
-                        (sp - stk->stack) * sizeof(struct compare_item) / sizeof(value));
+      CAMLassert(next_stack_slot > stk->stack);
+      value* roots_start = (value*)(stk->stack);
+      size_t roots_length =
+        (next_stack_slot - stk->stack)
+        * sizeof(struct compare_item) / sizeof(value);
+      Begin_roots_block(roots_start, roots_length);
       exn = caml_do_pending_actions_exn();
       End_roots();
     }
@@ -311,7 +313,7 @@ static intnat do_compare_val(struct compare_stack* stk,
            top. */
         if (next_stack_slot >= stk->limit)
           next_stack_slot = compare_resize_stack(stk, next_stack_slot);
-        struct compare_item*sp = next_stack_slot;
+        struct compare_item* sp = next_stack_slot;
         next_stack_slot ++;
         sp->v1 = v1;
         sp->v2 = v2;
@@ -343,7 +345,7 @@ static intnat do_compare_val(struct compare_stack* stk,
     /* Pop one more item to compare, if any */
     if (next_stack_slot == stk->stack) return EQUAL; /* we're done */
 
-    struct compare_item*sp = next_stack_slot-1;
+    struct compare_item* sp = next_stack_slot-1;
     v1 = Field(sp->v1, Long_val(sp->offset));
     v2 = Field(sp->v2, Long_val(sp->offset));
     sp->offset += 2;/* Long_val(sp->offset) += 1 */
