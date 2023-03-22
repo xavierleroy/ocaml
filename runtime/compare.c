@@ -86,7 +86,6 @@ static struct compare_item * compare_resize_stack(struct compare_stack* stk,
   return newstack + sp_offset;
 }
 
-
 static intnat do_compare_val(struct compare_stack* stk,
                              value v1, value v2, int total);
 
@@ -114,7 +113,7 @@ static void poll_pending_actions(struct compare_stack* stk)
       compare_free_stack(stk);
       caml_raise(exn);
     }
-  }
+   }
 }
 
 /* Structural comparison */
@@ -140,12 +139,7 @@ static intnat do_compare_val(struct compare_stack* stk,
 
   sp = stk->stack;
   while (1) {
-    /* Periodically poll for actions, since this loop can run for
-       unbounded time. */
-    if (CAMLunlikely(++signal_poll_timer >= COMPARE_SIGNAL_POLL_PERIOD)) {
-      signal_poll_timer = 0;
-      poll_pending_actions(stk);
-    }
+    ++signal_poll_timer;
     if (v1 == v2 && total) goto next_item;
     if (Is_long(v1)) {
       if (v1 == v2) goto next_item;
@@ -301,14 +295,23 @@ static intnat do_compare_val(struct compare_stack* stk,
       /* Compare sizes first for speed */
       if (sz1 != sz2) return sz1 - sz2;
       if (sz1 == 0) break;
-      /* Remember that we still have to compare fields 1 ... sz - 1 */
-      if (sz1 > 1) {
+      /* Remember that we still have to compare fields 1 ... sz - 1. */
+      if (sz1 > 1 || CAMLunlikely(signal_poll_timer >= COMPARE_SIGNAL_POLL_PERIOD)) {
         sp++;
         if (sp >= stk->limit) sp = compare_resize_stack(stk, sp);
         sp->v1 = v1;
         sp->v2 = v2;
-        sp->offset = Val_long(1);
         sp->size = Val_long(sz1);
+        if (CAMLunlikely(sz1 == 1)) {
+          /* We have (sz1 == 1) when we must poll; in this case we
+             want to also include the first field in the compare
+             stack, and jump to the poll site below instead of
+             continuing at the top. */
+          sp->offset = Val_long(0);
+          break;
+        } else {
+          sp->offset = Val_long(1);
+        }
       }
       /* Continue comparison with first field */
       v1 = Field(v1, 0);
@@ -316,6 +319,14 @@ static intnat do_compare_val(struct compare_stack* stk,
       continue;
     }
     }
+
+    if (CAMLunlikely(signal_poll_timer >= COMPARE_SIGNAL_POLL_PERIOD)) {
+      signal_poll_timer = 0;
+      /* At this point v1, v2 need not be rooted, they are about to be
+         reloaded from the compare stack below. */
+      poll_pending_actions(stk);
+    }
+
   next_item:
     /* Pop one more item to compare, if any */
     if (sp == stk->stack) return EQUAL; /* we're done */
