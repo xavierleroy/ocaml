@@ -31,7 +31,14 @@ struct compare_item { value v1, v2, offset, size; };
 #define COMPARE_STACK_MIN_ALLOC_SIZE 32
 #define COMPARE_STACK_MAX_SIZE (1024*1024)
 
-#define COMPARE_SIGNAL_POLL_PERIOD 1024
+#define COMPARE_POLL_PERIOD 1024
+#define COMPARE_RESET_POLL_TIMER(timer) timer = COMPARE_POLL_PERIOD
+#define COMPARE_TICK_POLL_TIMER(timer) --timer
+#define COMPARE_MUST_POLL(timer) (CAMLunlikely(timer <= 0))
+/* Remark: using (timer <= 0) rather than (timer == 0) is more robust
+   in cases where several ticks are performed without a MUST_POLL test
+   in between. This can occur in practice in the code below due to the
+   use of 'continue' on Forward_tag objects. */
 
 struct compare_stack {
   struct compare_item init_stack[COMPARE_STACK_INIT_SIZE];
@@ -144,11 +151,12 @@ static intnat do_compare_val(struct compare_stack* stk,
 {
   struct compare_item * next_stack_slot;
   tag_t t1, t2;
-  int signal_poll_timer = COMPARE_SIGNAL_POLL_PERIOD;
+  int poll_timer;
+  COMPARE_RESET_POLL_TIMER(poll_timer);
 
   next_stack_slot = stk->stack;
   while (1) {
-    --signal_poll_timer;
+    COMPARE_TICK_POLL_TIMER(poll_timer);
     if (v1 == v2 && total) goto next_item;
     if (Is_long(v1)) {
       if (v1 == v2) goto next_item;
@@ -305,7 +313,7 @@ static intnat do_compare_val(struct compare_stack* stk,
       if (sz1 != sz2) return sz1 - sz2;
       if (sz1 == 0) break;
       /* Remember that we still have to compare fields 1 ... sz - 1. */
-      if (sz1 > 1 || CAMLunlikely(signal_poll_timer == 0)) {
+      if (sz1 > 1 || COMPARE_MUST_POLL(poll_timer)) {
         /* In the special case where we must poll, we always push the
            whole blocks to the compare stack, and break (the switch)
            to the poll point below instead of continuing at the
@@ -317,7 +325,7 @@ static intnat do_compare_val(struct compare_stack* stk,
         sp->v1 = v1;
         sp->v2 = v2;
         sp->size = Val_long(sz1);
-        if (CAMLunlikely(signal_poll_timer == 0)) {
+        if (COMPARE_MUST_POLL(poll_timer)) {
           sp->offset = Val_long(0);
           break;
         } else {
@@ -333,11 +341,11 @@ static intnat do_compare_val(struct compare_stack* stk,
 
     /* Periodically poll for actions, since this loop can run for
        unbounded time. */
-    if (CAMLunlikely(signal_poll_timer == 0)) {
+    if (COMPARE_MUST_POLL(poll_timer)) {
       /* At this point v1, v2 need not be rooted, they are about to be
          reloaded from the compare stack below. */
       poll_pending_actions(stk, next_stack_slot);
-      signal_poll_timer = COMPARE_SIGNAL_POLL_PERIOD;
+      COMPARE_RESET_POLL_TIMER(poll_timer);
     }
 
   next_item:
