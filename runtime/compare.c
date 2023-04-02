@@ -108,17 +108,17 @@ static intnat compare_val(value v1, value v2, int total)
 }
 
 static void poll_pending_actions(struct compare_stack* stk,
-                                 struct compare_item* next_stack_slot)
+                                 struct compare_item* sp)
 {
   if (caml_check_pending_actions()) {
     value exn;
-    if (next_stack_slot == stk->stack) {
+    if (sp == stk->stack) {
       exn = caml_do_pending_actions_exn();
     } else {
-      CAMLassert(next_stack_slot > stk->stack);
+      CAMLassert(sp > stk->stack);
       value* roots_start = (value*)(stk->stack);
       size_t roots_length =
-        (next_stack_slot - stk->stack)
+        (sp - stk->stack)
         * sizeof(struct compare_item) / sizeof(value);
       Begin_roots_block(roots_start, roots_length);
       exn = caml_do_pending_actions_exn();
@@ -129,7 +129,7 @@ static void poll_pending_actions(struct compare_stack* stk,
       compare_free_stack(stk);
       caml_raise(exn);
     }
-   }
+  }
 }
 
 /* Structural comparison */
@@ -149,12 +149,12 @@ static void poll_pending_actions(struct compare_stack* stk,
 static intnat do_compare_val(struct compare_stack* stk,
                              value v1, value v2, int total)
 {
-  struct compare_item * next_stack_slot;
+  struct compare_item * sp;
   tag_t t1, t2;
   int poll_timer;
   COMPARE_RESET_POLL_TIMER(poll_timer);
 
-  next_stack_slot = stk->stack;
+  sp = stk->stack;
   while (1) {
     COMPARE_TICK_POLL_TIMER(poll_timer);
     if (v1 == v2 && total) goto next_item;
@@ -318,18 +318,17 @@ static intnat do_compare_val(struct compare_stack* stk,
            whole blocks to the compare stack, and break (the switch)
            to the poll point below instead of continuing at the
            top. */
-        if (next_stack_slot >= stk->limit)
-          next_stack_slot = compare_resize_stack(stk, next_stack_slot);
-        struct compare_item* sp = next_stack_slot;
-        next_stack_slot ++;
-        sp->v1 = v1;
-        sp->v2 = v2;
-        sp->size = Val_long(sz1);
+        if (sp >= stk->limit)
+          sp = compare_resize_stack(stk, sp);
+        struct compare_item* next = sp++;
+        next->v1 = v1;
+        next->v2 = v2;
+        next->size = Val_long(sz1);
         if (COMPARE_MUST_POLL(poll_timer)) {
-          sp->offset = Val_long(0);
+          next->offset = Val_long(0);
           break;
         } else {
-          sp->offset = Val_long(1);
+          next->offset = Val_long(1);
         }
       }
       /* Continue comparison with first field */
@@ -344,19 +343,19 @@ static intnat do_compare_val(struct compare_stack* stk,
     if (COMPARE_MUST_POLL(poll_timer)) {
       /* At this point v1, v2 need not be rooted, they are about to be
          reloaded from the compare stack below. */
-      poll_pending_actions(stk, next_stack_slot);
+      poll_pending_actions(stk, sp);
       COMPARE_RESET_POLL_TIMER(poll_timer);
     }
 
   next_item:
     /* Pop one more item to compare, if any */
-    if (next_stack_slot == stk->stack) return EQUAL; /* we're done */
+    if (sp == stk->stack) return EQUAL; /* we're done */
 
-    struct compare_item* sp = next_stack_slot-1;
-    v1 = Field(sp->v1, Long_val(sp->offset));
-    v2 = Field(sp->v2, Long_val(sp->offset));
-    sp->offset += 2;/* Long_val(sp->offset) += 1 */
-    if (sp->offset == sp->size) next_stack_slot--;
+    struct compare_item* last = sp-1;
+    v1 = Field(last->v1, Long_val(last->offset));
+    v2 = Field(last->v2, Long_val(last->offset));
+    last->offset += 2;/* Long_val(last->offset) += 1 */
+    if (last->offset == last->size) sp--;
   }
 }
 
