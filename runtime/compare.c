@@ -110,25 +110,20 @@ static intnat compare_val(value v1, value v2, int total)
 static void poll_pending_actions(struct compare_stack* stk,
                                  struct compare_item* sp)
 {
-  if (caml_check_pending_actions()) {
-    value exn;
-    if (sp == stk->stack) {
-      exn = caml_do_pending_actions_exn();
-    } else {
-      CAMLassert(sp > stk->stack);
-      value* roots_start = (value*)(stk->stack);
-      size_t roots_length =
-        (sp - stk->stack)
-        * sizeof(struct compare_item) / sizeof(value);
-      Begin_roots_block(roots_start, roots_length);
-      exn = caml_do_pending_actions_exn();
-      End_roots();
-    }
-    if (Is_exception_result(exn)) {
-      exn = Extract_exception(exn);
-      compare_free_stack(stk);
-      caml_raise(exn);
-    }
+  if (!caml_check_pending_actions()) return;
+  value exn;
+  CAMLassert(sp > stk->stack);
+  value* roots_start = (value*)(stk->stack);
+  size_t roots_length =
+    (sp - stk->stack)
+    * sizeof(struct compare_item) / sizeof(value);
+  Begin_roots_block(roots_start, roots_length);
+  exn = caml_do_pending_actions_exn();
+  End_roots();
+  if (Is_exception_result(exn)) {
+    exn = Extract_exception(exn);
+    compare_free_stack(stk);
+    caml_raise(exn);
   }
 }
 
