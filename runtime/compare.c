@@ -31,20 +31,13 @@ struct compare_item { value v1, v2, offset, size; };
 #define COMPARE_STACK_MIN_ALLOC_SIZE 32
 #define COMPARE_STACK_MAX_SIZE (1024*1024)
 
-#define COMPARE_POLL_PERIOD 1024
-#define COMPARE_RESET_POLL_TIMER(timer) timer = COMPARE_POLL_PERIOD
-#define COMPARE_TICK_POLL_TIMER(timer) --timer
-#define COMPARE_MUST_POLL(timer) (CAMLunlikely(timer <= 0))
-/* Remark: using (timer <= 0) rather than (timer == 0) is more robust
-   in cases where several ticks are performed without a MUST_POLL test
-   in between. This can occur in practice in the code below due to the
-   use of 'continue' on Forward_tag objects. */
-
 struct compare_stack {
   struct compare_item init_stack[COMPARE_STACK_INIT_SIZE];
   struct compare_item* stack;
   struct compare_item* limit;
 };
+
+#define COMPARE_POLL_PERIOD 1024
 
 /* Free the compare stack if needed */
 static void compare_free_stack(struct compare_stack* stk)
@@ -107,10 +100,9 @@ static intnat compare_val(value v1, value v2, int total)
   return res;
 }
 
-static void poll_pending_actions(struct compare_stack* stk,
-                                 struct compare_item* sp)
+static void run_pending_actions(struct compare_stack* stk,
+                                struct compare_item* sp)
 {
-  if (!caml_check_pending_actions()) return;
   value exn;
   CAMLassert(sp > stk->stack);
   value* roots_start = (value*)(stk->stack);
@@ -147,11 +139,11 @@ static intnat do_compare_val(struct compare_stack* stk,
   struct compare_item * sp;
   tag_t t1, t2;
   int poll_timer;
-  COMPARE_RESET_POLL_TIMER(poll_timer);
 
   sp = stk->stack;
   while (1) {
-    COMPARE_TICK_POLL_TIMER(poll_timer);
+  poll_timer = COMPARE_POLL_PERIOD;
+  while (--poll_timer > 0) {
     if (v1 == v2 && total) goto next_item;
     if (Is_long(v1)) {
       if (v1 == v2) goto next_item;
@@ -308,23 +300,14 @@ static intnat do_compare_val(struct compare_stack* stk,
       if (sz1 != sz2) return sz1 - sz2;
       if (sz1 == 0) break;
       /* Remember that we still have to compare fields 1 ... sz - 1. */
-      if (sz1 > 1 || COMPARE_MUST_POLL(poll_timer)) {
-        /* In the special case where we must poll, we always push the
-           whole blocks to the compare stack, and break (the switch)
-           to the poll point below instead of continuing at the
-           top. */
+      if (sz1 > 1) {
         if (sp >= stk->limit)
           sp = compare_resize_stack(stk, sp);
         struct compare_item* next = sp++;
         next->v1 = v1;
         next->v2 = v2;
         next->size = Val_long(sz1);
-        if (COMPARE_MUST_POLL(poll_timer)) {
-          next->offset = Val_long(0);
-          break;
-        } else {
-          next->offset = Val_long(1);
-        }
+        next->offset = Val_long(1);
       }
       /* Continue comparison with first field */
       v1 = Field(v1, 0);
@@ -332,16 +315,6 @@ static intnat do_compare_val(struct compare_stack* stk,
       continue;
     }
     }
-
-    /* Periodically poll for actions, since this loop can run for
-       unbounded time. */
-    if (COMPARE_MUST_POLL(poll_timer)) {
-      /* At this point v1, v2 need not be rooted, they are about to be
-         reloaded from the compare stack below. */
-      poll_pending_actions(stk, sp);
-      COMPARE_RESET_POLL_TIMER(poll_timer);
-    }
-
   next_item:
     /* Pop one more item to compare, if any */
     if (sp == stk->stack) return EQUAL; /* we're done */
@@ -351,6 +324,18 @@ static intnat do_compare_val(struct compare_stack* stk,
     v2 = Field(last->v2, Long_val(last->offset));
     last->offset += 2;/* Long_val(last->offset) += 1 */
     if (last->offset == last->size) sp--;
+  }
+  /* Poll for actions */
+  if (caml_check_pending_actions()) {
+    /* Preserve v1, v2 if a GC occurs.  Registering v1 and v2 directly
+       as roots would prevent them from being allocated to registers. */
+    value root_v1 = v1, root_v2 = v2;
+    Begin_roots2(root_v1, root_v2);
+    run_pending_actions(stk, sp);
+    v1 = root_v1; v2 = root_v2;
+    End_roots();
+  }
+  /* Resume comparison after resetting poll_timer */
   }
 }
 
