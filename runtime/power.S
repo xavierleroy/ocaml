@@ -40,7 +40,6 @@
 #define TRAP_HANDLER_OFFSET 40
 #define TRAP_PREVIOUS_OFFSET 48
 #define CALLBACK_LINK_SIZE 32
-#define CALLBACK_LINK_OFFSET 32
 
 /* struct stack_info */
 #define Stack_sp(reg)           0(reg)
@@ -49,10 +48,10 @@
 #define Stack_handler(reg)      16(reg)
 
 /* struct c_stack_link */
-#define Cstack_stack(reg)       0(reg)
-#define Cstack_sp(reg)          8(reg)
-#define Cstack_sp_offset        8
-#define Cstack_prev(reg)        16(reg)
+#define Cstack_stack(reg)       32(reg)
+#define Cstack_sp(reg)          40(reg)
+#define Cstack_sp_offset        40
+#define Cstack_prev(reg)        48(reg)
 
 /* struct stack_handler */
 #define Handler_value(reg)      0(reg)
@@ -471,9 +470,8 @@ FUNCTION caml_start_program
     /* Reload allocation pointer */
         ld      ALLOC_PTR, Caml_state(young_ptr)
     /* Set up a struct c_stack_link on the C stack */
-        addi    TMP, SP, RESERVED_STACK  /* pointer to the struct */
         ld      0, Caml_state(c_stack)
-        std     0, Cstack_prev(TMP)
+        std     0, Cstack_prev(SP)
         std     SP, Caml_state(c_stack)
     /* Load the OCaml stack */
         ld      TMP, Caml_state(current_stack)
@@ -514,8 +512,7 @@ FUNCTION caml_start_program
         std     SP, Stack_sp(TMP)
         ld      SP, Caml_state(c_stack)
     /* Pop the struct c_stack_link */
-        addi    TMP, SP, RESERVED_STACK  /* pointer to the struct */
-        ld      0, Cstack_prev(TMP)
+        ld      0, Cstack_prev(SP)
         std     0, Caml_state(c_stack)
     /* Restore callee-save registers */
         addi    TMP, SP, CALLBACK_LINK_SIZE + RESERVED_STACK - 8
@@ -799,7 +796,7 @@ caml_system__code_end:
         .section ".data"
         .globl  caml_system.frametable
         .type   caml_system.frametable, @object
-caml_system__frametable:
+caml_system.frametable:
         .quad   2               /* two descriptors */
         .quad   .Lcaml_retaddr + 4  /* return address into callback */
         .short  -1              /* negative frame size => use callback link */
@@ -820,6 +817,9 @@ caml_system__frametable:
 TOCENTRY(caml_apply2)
 TOCENTRY(caml_apply3)
 TOCENTRY(caml_program)
+TOCENTRY(caml_exn_Stack_overflow)
+TOCENTRY(caml_raise_unhandled_effect)
+TOCENTRY(caml_raise_continuation_already_resumed)
 TOCENTRYLABEL(fiber_exn_handler)
 TOCENTRYLABEL(trap_handler)
 
