@@ -62,9 +62,8 @@ frame_descr * caml_next_frame_descriptor
         *pc = 0;
         return NULL;
       }
-      Pop_frame_pointer(*sp);
-      *pc = **(uintnat**)sp;
-      *sp += sizeof(value); /* return address */
+      *sp = First_frame(*sp);
+      *pc = Saved_return_address(*sp);
     }
   }
 }
