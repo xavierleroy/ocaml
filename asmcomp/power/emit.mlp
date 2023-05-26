@@ -208,18 +208,24 @@ let emit_load_store instr addressing_mode addr n arg =
 
 (* After a comparison, extract the result as 0 or 1 *)
 
-let emit_set_comp cmp res =
+let emit_extract_crbit bitnum negated res =
   `	mfcr	0\n`;
+  `	rlwinm	{emit_reg res}, 0, {emit_int(bitnum+1)}, 31, 31\n`;
+  if negated then
+    `	xori	{emit_reg res}, {emit_reg res}, 1\n`
+
+let emit_set_comp cmp res =
   let bitnum =
     match cmp with
       Ceq | Cne -> 2
     | Cgt | Cle -> 1
-    | Clt | Cge -> 0 in
-`	rlwinm	{emit_reg res}, 0, {emit_int(bitnum+1)}, 31, 31\n`;
-  begin match cmp with
-    Cne | Cle | Cge -> `	xori	{emit_reg res}, {emit_reg res}, 1\n`
-  | _ -> ()
-  end
+    | Clt | Cge -> 0
+  and negated =
+    match cmp with
+    | Cne | Cle | Cge -> true
+    | Ceq | Clt | Cgt -> false
+  in
+    emit_extract_crbit bitnum negated res
 
 let emit_float_comp cmp arg =
   `	fcmpu	0, {emit_reg arg.(0)}, {emit_reg arg.(1)}\n`;
@@ -227,20 +233,16 @@ let emit_float_comp cmp arg =
   let bitnum =
     match cmp with
     | CFeq | CFneq -> 2
-    | CFle | CFnle ->
-    `	cror	3, 0, 2\n`; (* lt or eq *)
-    3
+    | CFle | CFnle -> `	cror	3, 0, 2\n`; 3 (* lt or eq *)
     | CFgt | CFngt -> 1
-    | CFge | CFnge ->
-    `	cror	3, 1, 2\n`; (* gt or eq *)
-    3
+    | CFge | CFnge -> `	cror	3, 1, 2\n`; 3 (* gt or eq *)
     | CFlt | CFnlt -> 0
+  and negated =
+    match cmp with
+    | CFneq | CFngt | CFnge | CFnlt | CFnle -> true
+    | CFeq | CFgt | CFge | CFlt | CFle -> false
   in
-  match cmp with
-  | CFneq | CFngt | CFnge | CFnlt | CFnle ->
-    bitnum, true
-  | CFeq | CFgt | CFge | CFlt | CFle ->
-    bitnum, false
+    (bitnum, negated)
 
 (* Free the stack frame *)
 
@@ -423,9 +425,7 @@ module BR = Branch_relaxation.Make (struct
     | Lop(Ispecific(Ipoll_far { return_label = None } )) -> 4
     | Lop(Iintop Imod) -> 3
     | Lop(Iintop(Icomp _)) -> 4
-    | Lop(Icompf _) ->
-        Misc.fatal_error "Icompf is not implemented for this platform";
-        (* 5 *)
+    | Lop(Icompf _) -> 5
     | Lop(Iintop _) -> 1
     | Lop(Iintop_imm(Icomp _, _)) -> 4
     | Lop(Iintop_imm _) -> 1
@@ -727,20 +727,8 @@ let emit_instr env i =
             emit_set_comp c i.res.(0)
         end
     | Lop(Icompf cmp) ->
-        ignore cmp;
-        Misc.fatal_error "Icompf is not implemented for this platform";
-        (* smuenzel: the following code may be used to implement
-           Icompf when this platform is supported again post 5.0.
-           It will need to be tested.
-           {[
-             let res = i.res.(0) in
-             let bitnum, negated = emit_float_comp cmp i.arg in
-             `	mfcr	0\n`;
-             `	rlwinm	{emit_reg res}, 0, {emit_int(bitnum+1)}, 31, 31\n`;
-             if negated
-             then `  xori  {emit_reg res}, {emit_reg res}, 1\n`
-           ]}
-        *)
+        let (bitnum, negated) = emit_float_comp cmp i.arg in
+        emit_extract_crbit bitnum negated i.res.(0)
     | Lop(Iintop (Icheckbound)) ->
         if !Clflags.debug then
           record_frame env Reg.Set.empty (Dbg_other i.dbg);
