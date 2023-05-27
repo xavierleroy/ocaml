@@ -239,9 +239,11 @@ let stack_ptr_dwarf_register_number = 1
 
 (* Registers destroyed by operations *)
 
+(* For direct C calls, all caller-save registers are destroyed,
+   plus GPR28 because it is used to save the OCaml stack pointer. *)
 let destroyed_at_c_call =
   Array.of_list(List.map phys_reg
-    [0; 1; 2; 3; 4; 5; 6; 7;
+    [0; 1; 2; 3; 4; 5; 6; 7; 22;
      100; 101; 102; 103; 104; 105; 106; 107; 108; 109; 110; 111; 112])
 
 let destroyed_at_oper = function
