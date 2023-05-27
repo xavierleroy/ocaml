@@ -408,9 +408,10 @@ module BR = Branch_relaxation.Make (struct
         if func = f.fun_name
         then 1
         else 6 + tocload_size()
-    | Lop(Iextcall { alloc = true; _ }) ->
-        2 + tocload_size()
-    | Lop(Iextcall { alloc = false; _}) -> 2
+    | Lop(Iextcall { alloc; stack_ofs; _}) ->
+        if stack_ofs > 0 then tocload_size() + 4
+        else if alloc then tocload_size() + 2
+        else 5
     | Lop(Istackoffset _) -> 1
     | Lop(Iload {memory_chunk; addressing_mode; _ }) ->
       if memory_chunk = Byte_signed
@@ -656,7 +657,6 @@ let emit_instr env i =
           (* Switch to C stack *)
           let offset = Domainstate.(idx_of_field Domain_c_stack) * 8 in
           `	ld	1, {emit_int offset}(30)\n`;
-          `	addi	1, 1, -32\n`;  (* TO CHECK *)
           emit_call func;
           emit_call_nop();
           (* Switch back to OCaml stack *)
