@@ -36,12 +36,15 @@
 #define Wosize_gc_regs (23 /* int regs */ + 14 /* caller-save float regs */)
 #define Saved_return_address(sp) *((intnat *)((sp) + 16))
 #define First_frame(sp) (sp)
+#define Saved_gc_regs(sp) (*(value **)((sp) + 32 + 32 + 8))
+#define Stack_header_size (32 + 32 + 16)
 #endif
 
 #ifdef TARGET_s390x
 #define Wosize_gc_regs (2 + 9 /* int regs */ + 16 /* float regs */)
 #define Saved_return_address(sp) *((intnat *)((sp) - 8))
 #define First_frame(sp) ((sp) + 8)
+#define Trap_frame_size 16
 #endif
 
 #ifdef TARGET_amd64
@@ -54,6 +57,8 @@
 #else
 #define First_frame(sp) ((sp) + 8)
 #endif
+#define Saved_gc_regs(sp) (*(value **)((sp) + 24))
+#define Stack_header_size 32
 #endif
 
 #ifdef TARGET_arm64
@@ -62,6 +67,8 @@
 #define Wosize_gc_regs (2 + 24 /* int regs */ + 24 /* float regs */)
 #define Saved_return_address(sp) *((intnat *)((sp) - 8))
 #define First_frame(sp) ((sp) + 16)
+#define Saved_gc_regs(sp) (*(value **)((sp) + 24))
+#define Stack_header_size 32
 #endif
 
 #ifdef TARGET_riscv
@@ -70,6 +77,8 @@
 #define Wosize_gc_regs (2 + 22 /* int regs */ + 20 /* float regs */)
 #define Saved_return_address(sp) *((intnat *)((sp) - 8))
 #define First_frame(sp) ((sp) + 16)
+#define Saved_gc_regs(sp) (*(value **)((sp) + 24))
+#define Stack_header_size 32
 #endif
 
 /* Declaration of variables used in the asm code */
