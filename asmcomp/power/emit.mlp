@@ -938,9 +938,9 @@ let fundecl fundecl =
         Domainstate.stack_ctx_words * 8 + stack_threshold_size in
       let f = max_frame_size + threshold_offset in
       let offset = Domainstate.(idx_of_field Domain_current_stack) * 8 in
-      `	ld	0, {emit_int offset}(30)\n`;
-      `	addi	0, 0, {emit_int f}\n`;
-      `	cmpld	1, 0\n`;
+      `	ld	11, {emit_int offset}(30)\n`;
+      `	addi	11, 11, {emit_int f}\n`;
+      `	cmpld	1, 11\n`;
       `	ble-	{emit_label overflow}\n`;
       `{emit_label ret}:\n`
   end;
