@@ -640,11 +640,9 @@ let emit_instr env i =
     | Lop(Iextcall { func; alloc; stack_ofs }) ->
         if stack_ofs > 0 then begin
           emit_tocload emit_gpr 25 (TocSym func);
-          `	addi	23, 1, {emit_int reserved_stack_space}\n`;
-                                         (* stack arg begin *)
-          `	addi	24, 1, {emit_int (reserved_stack_space + stack_ofs)}\n`;
-                                         (* stack arg end *)
-          emit_call "caml_c_call_stack_arg";
+         `	li	24, {emit_int stack_ofs}\n`;
+             (* size in bytes of stack area containing the arguments *)
+          emit_call "caml_c_call_stack_args";
           record_frame env i.live (Dbg_other i.dbg);
           `	nop\n`
         end else if alloc then begin

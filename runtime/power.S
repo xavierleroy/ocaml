@@ -21,8 +21,7 @@
 #define TMP2 12
 #define START_PRG_ARG 12
 #define START_PRG_DOMAIN_STATE_PTR 7
-#define STACK_ARG_BEGIN 23
-#define STACK_ARG_END 24
+#define STACK_ARG_BYTES 24
 #define C_CALL_FUN 25
 #define C_CALL_TOC 26
 #define C_CALL_RET_ADDR 27
@@ -316,7 +315,7 @@ ENDFUNCTION caml_c_call
 
 FUNCTION caml_c_call_stack_args
    /* Extra arguments to be passed on stack: 
-      at offsets STACK_ARG_BEGIN to STACK_ARG_END from SP */
+      STACK_ARG_BYTES at offsets 32 to 32 + STACK_ARG_BYTES from SP */
         mr      C_CALL_TMP, SP
    /* Save return address in caller's frame AND in a callee-save register */
         mflr    C_CALL_RET_ADDR
@@ -326,18 +325,15 @@ FUNCTION caml_c_call_stack_args
    /* Make the exception handler and alloc ptr available to the C code */
         std     ALLOC_PTR, Caml_state(young_ptr)
         std     TRAP_PTR, Caml_state(exn_handler)
-   /* Set up a C stack frame that mimicks the frame on the OCaml stack:
-      - arguments passed on stack
-      - reserved space for arguments passed in registers. */
-        addi    0, STACK_ARG_END, 8
-	rldicr  0, 0, 0, 59   /* clear low 4 bits, aligning to 16 */
-        subfc   SP, 0, SP    /* allocate stack frame */
-        /* Copy from original SP + [STACK_ARG_BEGIN...STACK_ARG_END)
-           to new SP + [STACK_ARG_BEGIN...STACK_ARG_END) */
-1:      ldx     0, C_CALL_TMP, STACK_ARG_BEGIN        
-        stdx    0, SP, STACK_ARG_BEGIN
-        addi    STACK_ARG_BEGIN, STACK_ARG_BEGIN, 8
-        cmpd    STACK_ARG_BEGIN, STACK_ARG_END
+   /* Set up a C stack frame that mimicks the frame on the OCaml stack */
+        subfc   SP, STACK_ARG_BYTES, SP
+   /* Copy from original SP + [32...32+STACK_ARG_BYTES)
+           to new SP + [32...32+STACK_ARG_BYTES) */
+        addi    TMP, C_CALL_TMP, 32-8  /* source */
+        addi    TMP2, SP, 32-8         /* destination */
+1:      ldu     0, 8(TMP)
+        stdu    0, 8(TMP2)
+        addi.   STACK_ARG_BYTES, STACK_ARG_BYTES, -8
         bne     1b
     /* Call C function (address in C_CALL_FUN) */
         mtctr   C_CALL_FUN
