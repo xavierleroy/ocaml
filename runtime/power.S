@@ -36,9 +36,9 @@
 #define LR_SAVE 16
 #define TOC_SAVE_PARENT 8
 #define TOC_SAVE 24
-#define TRAP_SIZE 32
-#define TRAP_HANDLER_OFFSET 40
-#define TRAP_PREVIOUS_OFFSET 48
+#define TRAP_SIZE 16
+#define TRAP_HANDLER_OFFSET 8
+#define TRAP_PREVIOUS_OFFSET 0
 #define CALLBACK_LINK_SIZE 32
 
 /* struct stack_info */
@@ -364,24 +364,41 @@ FUNCTION caml_raise_exn
 .L110:
     /* Pop trap frame */
         ld      0, TRAP_HANDLER_OFFSET(TRAP_PTR)
-        mr      SP, TRAP_PTR
+        addi    SP, TRAP_PTR, TRAP_SIZE-RESERVED_STACK
         mtctr   0
-        ld      TRAP_PTR, TRAP_PREVIOUS_OFFSET(1)
-        addi    SP, SP, TRAP_SIZE
+        ld      TRAP_PTR, (RESERVED_STACK-TRAP_SIZE+TRAP_PREVIOUS_OFFSET)(SP)
     /* Branch to handler */
         bctr
 .L111:
+    /* Zero backtrace_pos */
+        li      0, 0
+        std     0, Caml_state(backtrace_pos)
+.L112:
         mr      27, 3           /* preserve exn bucket in callee-save reg */
                                 /* arg1: exception bucket, already in r3 */
         mflr    4               /* arg2: PC of raise */
-        mr      5, 1            /* arg3: SP of raise */
+        mr      5, SP           /* arg3: SP of raise */
         mr      6, TRAP_PTR     /* arg4: SP of handler */
-        addi    1, 1, -RESERVED_STACK
-                                /* reserve stack space for C call */
+    /* Switch to C stack and call caml_stash_backtrace */
+        ld      SP, Caml_state(current_stack)
         Far_call(caml_stash_backtrace)
-        mr      3, 27           /* restore exn bucket */
-        b       .L110           /* raise the exn */
+    /* Restore exception bucket and raise */
+        mr      3, 27
+        b       .L110
 ENDFUNCTION caml_raise_exn
+
+FUNCTION caml_reraise_exn
+        ld      0, Caml_state(backtrace_active)
+        cmpdi   0, 0
+        bne     .L112
+    /* Pop trap frame */
+        ld      0, TRAP_HANDLER_OFFSET(TRAP_PTR)
+        addi    SP, TRAP_PTR, TRAP_SIZE-RESERVED_STACK
+        mtctr   0
+        ld      TRAP_PTR, (RESERVED_STACK-TRAP_SIZE+TRAP_PREVIOUS_OFFSET)(SP)
+    /* Branch to handler */
+        bctr
+ENDFUNCTION caml_reraise_exn
 
 /* Raise an exception from C */
 

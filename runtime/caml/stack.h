@@ -36,8 +36,8 @@
 #define Wosize_gc_regs (23 /* int regs */ + 14 /* caller-save float regs */)
 #define Saved_return_address(sp) *((intnat *)((sp) + 16))
 #define First_frame(sp) (sp)
-#define Saved_gc_regs(sp) (*(value **)((sp) + 32 + 32 + 8))
-#define Stack_header_size (32 + 32 + 16)
+#define Saved_gc_regs(sp) (*(value **)((sp) + 32 + 16 + 8))
+#define Stack_header_size (32 + 16 + 16)
 #endif
 
 #ifdef TARGET_s390x
