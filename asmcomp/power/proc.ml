@@ -76,7 +76,7 @@ let rotate_registers = true
 
 let hard_int_reg =
   let v = Array.make 23 Reg.dummy in
-  for i = 0 to 21 do v.(i) <- Reg.at_location Int (Reg i) done; v
+  for i = 0 to 22 do v.(i) <- Reg.at_location Int (Reg i) done; v
 
 let hard_float_reg =
   let v = Array.make 31 Reg.dummy in
@@ -259,11 +259,11 @@ let destroyed_at_reloadretaddr = [| phys_reg 11 |]
 (* Maximal register pressure *)
 
 let safe_register_pressure = function
-    Iextcall _ -> 14
+    Iextcall _ -> 13
   | _ -> 23
 
 let max_register_pressure = function
-    Iextcall _ -> [| 14; 18 |]
+    Iextcall _ -> [| 13; 18 |]
   | _ -> [| 23; 30 |]
 
 (* Layout of the stack *)
