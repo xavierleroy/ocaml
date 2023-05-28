@@ -497,24 +497,25 @@ FUNCTION caml_start_program
     /* Store the stack pointer to allow DWARF unwind */
         stdu    SP, -8(TMP)
     /* Setup a trap frame to catch exceptions escaping the OCaml code */
-    /* Also reserve the obligatory 32 bytes at bottom of OCaml stack */
-        addi    TMP, TMP, -(TRAP_SIZE + RESERVED_STACK)
+        addi    TMP, TMP, -TRAP_SIZE
         ld      0, Caml_state(exn_handler)
         std     0, TRAP_PREVIOUS_OFFSET(TMP)
 	Addrlabel(0,trap_handler)
         std     0, TRAP_HANDLER_OFFSET(TMP)
+    /* Reserve the obligatory 32 bytes at the bottom of the OCaml stack */
+        addi    TMP, TMP, -32
     /* Switch stacks */
         mr      SP, TMP
     /* Call the OCaml code (address in START_PRG_ARG) */
         mtctr   START_PRG_ARG
-        std     2, TOC_SAVE(SP)
 .Lcaml_retaddr:
         bctrl
-        ld      2, TOC_SAVE(SP)
+    /* Pop the reserved 32 bytes */
+        addi    SP, SP, 32
     /* Pop the trap frame, restoring caml_exn_handler */
         ld      0, TRAP_PREVIOUS_OFFSET(SP)
         std     0, Caml_state(exn_handler)
-        addi    1, 1, TRAP_SIZE
+        addi    SP, SP, TRAP_SIZE
     /* Update allocation pointer */
 .L106:
         std     ALLOC_PTR, Caml_state(young_ptr)
