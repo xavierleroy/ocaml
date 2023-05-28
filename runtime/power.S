@@ -325,22 +325,24 @@ FUNCTION caml_c_call_stack_args
    /* Make the exception handler and alloc ptr available to the C code */
         std     ALLOC_PTR, Caml_state(young_ptr)
         std     TRAP_PTR, Caml_state(exn_handler)
-   /* Set up a C stack frame that mimicks the frame on the OCaml stack */
+   /* Reserve STACK_ARG_BYTES bytes on the C stack */
         subfc   SP, STACK_ARG_BYTES, SP
-   /* Copy from original SP + [32...32+STACK_ARG_BYTES)
-           to new SP + [32...32+STACK_ARG_BYTES) */
-        addi    TMP, C_CALL_TMP, 32-8  /* source */
-        addi    TMP2, SP, 32-8         /* destination */
-1:      ldu     0, 8(TMP)
-        stdu    0, 8(TMP2)
-        addi.   STACK_ARG_BYTES, STACK_ARG_BYTES, -8
-        bne     1b
+   /* Copy from OCaml SP + [32...32+STACK_ARG_BYTES)
+           to C SP + [32...32+STACK_ARG_BYTES) */
+        addi    TMP, STACK_ARG_BYTES, 32 - 8
+1:      ldx     0, C_CALL_TMP, TMP
+        stdx    0, SP, TMP
+        addi    TMP, TMP, -8
+        cmpdi   TMP, 32
+        bge     1b
     /* Call C function (address in C_CALL_FUN) */
         mtctr   C_CALL_FUN
         mr      12, C_CALL_FUN
         mr      C_CALL_TOC, 2   /* save current TOC in a callee-save register */
         bctrl
         mr      2, C_CALL_TOC   /* restore current TOC */
+    /* Pop the extra stack space used */
+        add     SP, SP, STACK_ARG_BYTES
     /* Restore return address (in register C_CALL_RET_ADDR, preserved by C) */
         mtlr    C_CALL_RET_ADDR
     /* Reload allocation pointer*/
