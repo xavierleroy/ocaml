@@ -263,7 +263,7 @@ FUNCTION caml_call_realloc_stack
         blr
    /* Reallocation failed: raise the Stack_overflow exception */
 1:      Addrglobal(3, caml_exn_Stack_overflow)
-        b       caml_raise_exn        
+        b       .Lcaml_raise_exn
 ENDFUNCTION caml_call_realloc_stack
 
 /* Invoke the garbage collector. */
@@ -289,6 +289,7 @@ ENDFUNCTION caml_call_gc
 /* Call a C function from OCaml.  Function to call is in C_CALL_FUN */
 
 FUNCTION caml_c_call
+.Lcaml_c_call:
    /* Save return address in caller's frame AND in a callee-save register */
         mflr    C_CALL_RET_ADDR
         std     C_CALL_RET_ADDR, LR_SAVE(SP)
@@ -356,6 +357,7 @@ ENDFUNCTION caml_c_call_stack_args
 /* Raise an exception from OCaml */
 
 FUNCTION caml_raise_exn
+.Lcaml_raise_exn:
         ld      0, Caml_state(backtrace_active)
         cmpdi   0, 0
         bne     .L111
@@ -415,7 +417,7 @@ FUNCTION caml_raise_exception
         ld      0, LR_SAVE(SP)
         mtlr    0
     /* Raise the exception */
-        b       caml_raise_exn
+        b       .Lcaml_raise_exn
 ENDFUNCTION caml_raise_exception
 
 /* Start the OCaml program */
@@ -657,7 +659,7 @@ FUNCTION caml_perform
 
         ld      5, Caml_state(current_stack) /* r5 := old stack */
         addi    6, 5, 1  /* r6 := Val_ptr(old stack) */
-        std     5, 0(4)  /* Initialize continuation */
+        std     6, 0(4)  /* Initialize continuation */
 .Ldo_perform:
   /* r3: effect to perform
      r4: continuation
@@ -688,7 +690,7 @@ FUNCTION caml_perform
         SWITCH_OCAML_STACKS 9, 10
   /* No parent stack. Raise Effect.Unhandled. */
         Addrglobal(C_CALL_FUN, caml_raise_unhandled_effect)
-        b       caml_c_call
+        b       .Lcaml_c_call
 ENDFUNCTION caml_perform
 
 FUNCTION caml_reperform
@@ -727,7 +729,7 @@ FUNCTION caml_resume
         mr      3, 5
         bctr
 2:      Addrglobal(C_CALL_FUN, caml_raise_continuation_already_resumed)
-        b       caml_c_call
+        b       .Lcaml_c_call
 ENDFUNCTION caml_resume
 
 /* Run a function on a new stack, then either
