@@ -766,7 +766,7 @@ FUNCTION caml_runstack
     /* Switch to the new stack, after reserving 32 bytes at bottom */
         addi    SP, 9, -RESERVED_STACK
     /* Call the function on the new stack */
-        mr      5, 3   /* argument */
+        mr      3, 5   /* argument */
 .Lframe_runstack:
         bctrl
     /* Clean up on return */
