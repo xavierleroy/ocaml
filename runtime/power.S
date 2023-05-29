@@ -579,10 +579,10 @@ FUNCTION caml_start_program
 
     /* The trap handler: */
 .Ltrap_handler:
-    /* Restore TOC pointer */
-        ld      2, (STACKSIZE + TOC_SAVE_PARENT)(1)
     /* Update caml_exn_handler */
         std     TRAP_PTR, Caml_state(exn_handler)
+    /* Pop the reserved 32 bytes */
+        addi    SP, SP, RESERVED_STACK
     /* Encode exception bucket as an exception result and return it */
         ori     3, 3, 2
         b       .L106
