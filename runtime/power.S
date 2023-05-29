@@ -438,7 +438,7 @@ FUNCTION caml_start_program
 #define STACKSIZE (18 * 8 + 18 * 8 + CALLBACK_LINK_SIZE + RESERVED_STACK)
     /* Allocate and link stack frame */
         stdu    1, -STACKSIZE(1)
-    /* Save return address and TOP pointer */
+    /* Save return address and TOC pointer */
         mflr    0
         std     0, (STACKSIZE + LR_SAVE)(1)
         std     2, (STACKSIZE + TOC_SAVE_PARENT)(1)
@@ -502,10 +502,9 @@ FUNCTION caml_start_program
         std     0, TRAP_PREVIOUS_OFFSET(TMP)
 	Addrlabel(0,trap_handler)
         std     0, TRAP_HANDLER_OFFSET(TMP)
-    /* Reserve the obligatory 32 bytes at the bottom of the OCaml stack */
-        addi    TMP, TMP, -32
-    /* Switch stacks */
-        mr      SP, TMP
+	mr	TRAP_PTR, TMP
+    /* Switch stacks, reserving 32 bytes at the bottom of the OCaml stack */
+        addi    SP, TMP, -32
     /* Call the OCaml code (address in START_PRG_ARG) */
         mtctr   START_PRG_ARG
 .Lcaml_retaddr:
@@ -568,8 +567,9 @@ FUNCTION caml_start_program
         lfdu    29, 8(TMP)
         lfdu    30, 8(TMP)
         lfdu    31, 8(TMP)
-    /* Reload return address */
+    /* Reload return address and TOC pointer */
         ld      0, (STACKSIZE + LR_SAVE)(1)
+        ld      2, (STACKSIZE + TOC_SAVE_PARENT)(1)
         mtlr    0
     /* Return */
         addi    1, 1, STACKSIZE
