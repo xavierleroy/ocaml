@@ -272,6 +272,19 @@ let adjust_stack_offset env delta =
   env.stack_offset <- env.stack_offset + delta;
   cfi_adjust_cfa_offset delta
 
+(* Adjust stack pointer.  If frame pointers should be maintained,
+   make sure the bottom word after the adjustment contains the frame pointer. *)
+
+let emit_adjust_stack env delta =
+  if delta <> 0 then begin
+    if Config.with_frame_pointers then begin
+      `	ld	0, 0(1)\n`;
+      `	stdu	0, {emit_int (-delta)}(1)\n`
+    end else
+      `	addi	1, 1, {emit_int (-delta)}\n`;
+    adjust_stack_offset env delta
+  end
+
 (* Record live pointers at call points *)
 
 let record_frame env live dbg =
@@ -371,12 +384,12 @@ module BR = Branch_relaxation.Make (struct
 
   let offset_pc_at_branch = 1
 
-  let profiling_prologue_size = 6
+  let stack_adj_size =
+    if Config.with_frame_pointers then 2 else 1
 
   let prologue_size f =
-    profiling_prologue_size
-      + (if initial_stack_offset f > 0 then 1 else 0)
-      + (if f.fun_contains_calls then 3 else 0)
+      (if initial_stack_offset f > 0 then 1 else 0)
+    + (if f.fun_contains_calls then 3 else 0)
 
   let tocload_size() =
     if !big_toc || !Clflags.for_package <> None then 2 else 1
@@ -412,7 +425,7 @@ module BR = Branch_relaxation.Make (struct
         if stack_ofs > 0 then tocload_size() + 4
         else if alloc then tocload_size() + 2
         else 5
-    | Lop(Istackoffset _) -> 1
+    | Lop(Istackoffset _) -> stack_adj_size
     | Lop(Iload {memory_chunk; addressing_mode; _ }) ->
       if memory_chunk = Byte_signed
       then load_store_size addressing_mode + 1
@@ -448,8 +461,8 @@ module BR = Branch_relaxation.Make (struct
     | Lswitch _ -> 5 + tocload_size()
     | Lentertrap -> tocload_size()
     | Ladjust_trap_depth _ -> 0
-    | Lpushtrap _ -> 4 + tocload_size()
-    | Lpoptrap -> 2
+    | Lpushtrap _ -> 3 + stack_adj_size + tocload_size()
+    | Lpoptrap -> 1 + stack_adj_size
     | Lraise (Lambda.Raise_regular | Lambda.Raise_reraise) -> 2
     | Lraise Lambda.Raise_notrace -> 5
 
@@ -526,7 +539,10 @@ let emit_instr env i =
       assert (env.f.fun_prologue_required);
       let n = frame_size env in
       if n > 0 then begin
-        `	addi	1, 1, {emit_int(-n)}\n`;
+        if Config.with_frame_pointers then
+          `	stdu	1, {emit_int(-n)}(1)\n`
+        else
+          `	addi	1, 1, {emit_int(-n)}\n`;
         cfi_adjust_cfa_offset n
       end;
       if env.f.fun_contains_calls then begin
@@ -662,8 +678,7 @@ let emit_instr env i =
           `	mr	1, 28\n`
         end
     | Lop(Istackoffset n) ->
-        `	addi	1, 1, {emit_int (-n)}\n`;
-        adjust_stack_offset env n
+        emit_adjust_stack env n
     | Lop(Iload { memory_chunk; addressing_mode; is_atomic }) ->
         let loadinstr =
           match memory_chunk with
@@ -855,16 +870,14 @@ let emit_instr env i =
     | Ladjust_trap_depth { delta_traps } ->
         adjust_stack_offset env (trap_size * delta_traps)
     | Lpushtrap { lbl_handler; } ->
-        `	addi	1, 1, {emit_int (-trap_size)}\n`;
-        adjust_stack_offset env trap_size;
+        emit_adjust_stack env trap_size;
         `	std	29, {emit_int reserved_stack_space}(1)\n`;
         emit_tocload emit_gpr 29 (TocLabel lbl_handler);
         `	std     29, {emit_int (reserved_stack_space + 8)}(1)\n`;
         `	addi	29, 1, {emit_int reserved_stack_space}\n`
     | Lpoptrap ->
         `	ld	29, {emit_int reserved_stack_space}(1)\n`;
-        `	addi	1, 1, {emit_int trap_size}\n`;
-        adjust_stack_offset env (-trap_size)
+        emit_adjust_stack env (-trap_size)
     | Lraise k ->
         begin match k with
         | Lambda.Raise_regular ->
