@@ -504,13 +504,13 @@ FUNCTION caml_start_program
         std     0, TRAP_HANDLER_OFFSET(TMP)
 	mr	TRAP_PTR, TMP
     /* Switch stacks, reserving 32 bytes at the bottom of the OCaml stack */
-        addi    SP, TMP, -32
+        addi    SP, TMP, -RESERVED_STACK
     /* Call the OCaml code (address in START_PRG_ARG) */
         mtctr   START_PRG_ARG
 .Lcaml_retaddr:
         bctrl
     /* Pop the reserved 32 bytes */
-        addi    SP, SP, 32
+        addi    SP, SP, RESERVED_STACK
     /* Pop the trap frame, restoring caml_exn_handler */
         ld      0, TRAP_PREVIOUS_OFFSET(SP)
         std     0, Caml_state(exn_handler)
@@ -679,8 +679,6 @@ FUNCTION caml_perform
         mr      5, 6                 /* 3rd argument: last_fiber */
         mr      6, 0                 /* 4th argument: effect handler */
         Far_tailcall(caml_apply3)
-        mtctr   12
-        bctr
 1:
   /* Switch back to original performer before raising Effect.Unhandled
      (no-op unless this is a reperform) */
@@ -738,10 +736,10 @@ FUNCTION caml_runstack
   /* r3: fiber
      r4: fun
      r5: arg */
-        addi    SP, SP, -RESERVED_STACK
+    /* save return address and TOC on old stack */
         mflr    0
-        std     0, (RESERVED_STACK + LR_SAVE)(SP)
-        std     2, TOC_SAVE(SP)
+        std     0, LR_SAVE(SP)
+        std     2, TOC_SAVE_PARENT(SP)
         addi    3, 3, -1   /* r3 := Ptr_val(r3) */
         ld      12, 0(4)   /* r12 := code pointer */
         mtctr   12         /* CTR := code pointer */
@@ -763,12 +761,13 @@ FUNCTION caml_runstack
         ld      TMP, Stack_exception(3)
         std     TMP, TRAP_PREVIOUS_OFFSET(9)
         mr      TRAP_PTR, 9
-    /* Switch to the new stack */
-        mr      SP, 9
+    /* Switch to the new stack, after reserving 32 bytes at bottom */
+        addi    SP, 9, -RESERVED_STACK
     /* Call the function on the new stack */
         mr      5, 3   /* argument */
 .Lframe_runstack:
         bctrl
+    /* Clean up on return */
         addi    8, SP, (RESERVED_STACK + TRAP_SIZE + 16)
                                        /* r8 := stack_handler */
         ld      25, Handler_value(8) /* saved across C call */
@@ -782,7 +781,7 @@ FUNCTION caml_runstack
         std     TRAP_PTR, Caml_state(exn_handler)
     /* restore saved TOC */
         ld      27, Stack_sp(TMP)    /* saved across C calls */
-        ld      2, TOC_SAVE(27)
+        ld      2, TOC_SAVE_PARENT(27)
     /* free old stack by switching directly to c_stack;
        this is a no-alloc call */
         ld      SP, Caml_state(c_stack)
