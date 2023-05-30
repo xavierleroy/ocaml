@@ -62,13 +62,13 @@
 /* Function definitions */
 
 .macro FUNCTION name
-	.section ".text"
-	.globl \name
-	.type \name, @function
+        .section ".text"
+        .globl \name
+        .type \name, @function
 \name:
-0:      addis	2, 12, .TOC.- 0b@ha
-	addi	2, 2,  .TOC.- 0b@l
-	.localentry \name, . - \name
+0:      addis   2, 12, .TOC.- 0b@ha
+        addi    2, 2,  .TOC.- 0b@l
+        .localentry \name, . - \name
 .endm
 
 .macro ENDFUNCTION name
@@ -315,7 +315,7 @@ FUNCTION caml_c_call
 ENDFUNCTION caml_c_call
 
 FUNCTION caml_c_call_stack_args
-   /* Extra arguments to be passed on stack: 
+   /* Extra arguments to be passed on stack:
       STACK_ARG_BYTES at offsets 32 to 32 + STACK_ARG_BYTES from SP */
         mr      C_CALL_TMP, SP
    /* Save return address in caller's frame AND in a callee-save register */
@@ -499,15 +499,15 @@ FUNCTION caml_start_program
     /* Store the stack pointer to allow DWARF unwind (one day) */
     /* In the meantime, store a canary to help debugging */
         lis     0, 0x1234
-	ori	0, 0, 0xCDEF
+        ori     0, 0, 0xCDEF
         stdu    0, -8(TMP)
     /* Setup a trap frame to catch exceptions escaping the OCaml code */
         addi    TMP, TMP, -TRAP_SIZE
         ld      0, Caml_state(exn_handler)
         std     0, TRAP_PREVIOUS_OFFSET(TMP)
-	Addrlabel(0,trap_handler)
+        Addrlabel(0,trap_handler)
         std     0, TRAP_HANDLER_OFFSET(TMP)
-	mr	TRAP_PTR, TMP
+        mr      TRAP_PTR, TMP
     /* Switch stacks, reserving 32 bytes at the bottom of the OCaml stack */
         addi    SP, TMP, -RESERVED_STACK
     /* Call the OCaml code (address in START_PRG_ARG) */
@@ -700,7 +700,7 @@ FUNCTION caml_reperform
   /* r3: effect to perform
      r4: continuation
      r5: last_fiber */
-        addi	5, 5, -1
+        addi    5, 5, -1
         ld      TMP, Stack_handler(5)
         ld      5, Caml_state(current_stack) /* r5 := old stack */
         std     5, Handler_parent(TMP) /* Append to last_fiber */
@@ -760,7 +760,7 @@ FUNCTION caml_runstack
     /* Reserve 16-byte DWARF and gc_regs block, which is unused here.
        But temporarilyy store a canary to help debugging */
         lis     0, 0x1234
-	ori	0, 0, 0xCDEF
+        ori     0, 0, 0xCDEF
         stdu    0, -16(9)
     /* Create an exception handler on the target stack
        after 16byte DWARF & gc_regs block (which is unused here) */
