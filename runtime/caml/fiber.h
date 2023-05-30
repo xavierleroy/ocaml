@@ -98,6 +98,9 @@ CAML_STATIC_ASSERT(sizeof(struct stack_info) ==
 #if defined(TARGET_amd64) && (defined(_WIN32) || defined(__CYGWIN__))
 /* Win64 ABI shadow store for argument registers */
   #define Reserved_space_c_stack_link 4 * 8
+#elif defined(TARGET_power)
+/* ELF ABI: 4 reserved words at bottom of C stack */
+  #define Reserved_space_c_stack_link 4 * 8
 #endif
 
 /* This structure is used for storing the OCaml return pointer when
