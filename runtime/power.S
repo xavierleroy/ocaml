@@ -380,7 +380,7 @@ FUNCTION caml_raise_exn
         mr      5, SP           /* arg3: SP of raise */
         mr      6, TRAP_PTR     /* arg4: SP of handler */
     /* Switch to C stack and call caml_stash_backtrace */
-        ld      SP, Caml_state(current_stack)
+        ld      SP, Caml_state(c_stack)
         Far_call(caml_stash_backtrace)
     /* Restore exception bucket and raise */
         mr      3, 27
