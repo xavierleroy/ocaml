@@ -277,10 +277,10 @@ let adjust_stack_offset env delta =
 
 let emit_adjust_stack env delta =
   if delta <> 0 then begin
-    if Config.with_frame_pointers && n <> 0 then
+    if Config.with_frame_pointers then begin
       `	ld	0, 0(1)\n`;
       `	stdu	0, {emit_int (-delta)}(1)\n`
-    else
+    end else
       `	addi	1, 1, {emit_int (-delta)}\n`;
     adjust_stack_offset env delta
   end
@@ -870,14 +870,14 @@ let emit_instr env i =
     | Ladjust_trap_depth { delta_traps } ->
         adjust_stack_offset env (trap_size * delta_traps)
     | Lpushtrap { lbl_handler; } ->
-        emit_adujst_stack env trap_size;
+        emit_adjust_stack env trap_size;
         `	std	29, {emit_int reserved_stack_space}(1)\n`;
         emit_tocload emit_gpr 29 (TocLabel lbl_handler);
         `	std     29, {emit_int (reserved_stack_space + 8)}(1)\n`;
         `	addi	29, 1, {emit_int reserved_stack_space}\n`
     | Lpoptrap ->
         `	ld	29, {emit_int reserved_stack_space}(1)\n`;
-        emit_adujst_stack env (-trap_size)
+        emit_adjust_stack env (-trap_size)
     | Lraise k ->
         begin match k with
         | Lambda.Raise_regular ->
