@@ -497,10 +497,7 @@ FUNCTION caml_start_program
         ld      0, Caml_state(gc_regs)
         stdu    0, -8(TMP)
     /* Store the stack pointer to allow DWARF unwind (one day) */
-    /* In the meantime, store a canary to help debugging */
-        lis     0, 0x1234
-        ori     0, 0, 0xCDEF
-        stdu    0, -8(TMP)
+        stdu    SP, -8(TMP)
     /* Setup a trap frame to catch exceptions escaping the OCaml code */
         addi    TMP, TMP, -TRAP_SIZE
         ld      0, Caml_state(exn_handler)
@@ -757,11 +754,8 @@ FUNCTION caml_runstack
         std     8, Handler_parent(TMP)
         std     3, Caml_state(current_stack)
         ld      9, Stack_sp(3) /* r9 := sp of new stack */
-    /* Reserve 16-byte DWARF and gc_regs block, which is unused here.
-       But temporarilyy store a canary to help debugging */
-        lis     0, 0x1234
-        ori     0, 0, 0xCDEF
-        stdu    0, -16(9)
+    /* Reserve 16-byte DWARF and gc_regs block, which is unused here. */
+        addi    9, 9, -16
     /* Create an exception handler on the target stack
        after 16byte DWARF & gc_regs block (which is unused here) */
         addi    9, 9, -TRAP_SIZE
