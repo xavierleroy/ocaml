@@ -31,7 +31,7 @@ union float_bits {
  * half_to_float_fast5
  * https://gist.github.com/rygorous/2144712
  */
-static float caml_float16_to_float_gen(float16 d)
+static float caml_float16_to_float(float16 d)
 {
   static const union float_bits magic = { (254 - 15) << 23 };
   static const union float_bits was_infnan = { (127 + 16) << 23 };
@@ -50,7 +50,7 @@ static float caml_float16_to_float_gen(float16 d)
  * float_to_half_fast3_rtne
  * https://gist.github.com/rygorous/2156668
  */
-static float16 caml_float_to_float16_gen(float d)
+static float16 caml_float_to_float16(float d)
 {
   static const union float_bits f32infty = { 255 << 23 };
   static const union float_bits f16max = { (127 + 16) << 23 };
@@ -102,68 +102,4 @@ static float16 caml_float_to_float16_gen(float d)
   return o;
 }
 
-#if defined(__GNUC__) && defined(__x86_64__)
-
-#include <cpuid.h>
-
-static int caml_f16c_supported = -1;
-
-static int caml_check_f16c_supported(void)
-{
-  uint32_t a, b, c, d;
-  __cpuid(1, a, b, c, d);
-  int supp = (c & bit_F16C) != 0;
-  caml_f16c_supported = supp;
-  return supp;
-}
-
-static float caml_float16_to_float_f16c(float16 d)
-{
-  int sup = caml_f16c_supported;
-  if (__builtin_expect(sup < 0, 0))
-    sup = caml_check_f16c_supported();
-  if (sup > 0) {
-    float res;
-    asm ("vpxor %0, %0,%0\n\t"
-         "vpinsrw $0, %1, %0, %0\n\t"
-         "vcvtph2ps %0, %0"
-         : "=x"(res) : "r"((uint32_t) d));
-    return res;
-  } else {
-    return caml_float16_to_float_gen(d);
-  }
-}
-
-static float16 caml_float_to_float16_f16c(float d)
-{
-  int sup = caml_f16c_supported;
-  if (__builtin_expect(sup < 0, 0))
-    sup = caml_check_f16c_supported();
-  if (sup > 0) {
-    uint32_t res;
-    asm ("vcvtps2ph $8, %1, %1\n\t" // 8 = round to nearest, no exceptions
-         "vpextrw $0, %1, %0"
-         : "=r"(res), "+x"(d));
-    return res;
-  } else {
-    return caml_float_to_float16_gen(d);
-  }
-}
-
-// vmovd  %esi,%xmm0
-// vcvtps2ph $0x8,%xmm0,%xmm0
-// vpextrw $0x0,%xmm0,%eax
-
-#define caml_float16_to_float caml_float16_to_float_f16c
-#define caml_float_to_float16 caml_float_to_float16_f16c
-
-#else
-
-#define caml_float16_to_float caml_float16_to_float_gen
-#define caml_float_to_float16 caml_float_to_float16_gen
-
 #endif
-
-#endif
-
-
