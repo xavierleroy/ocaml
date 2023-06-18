@@ -113,8 +113,8 @@ module type S = sig
         of [s] starting at index [ofs] and containing [len] characters. *)
 
   val subbytes : bytes -> int -> int -> t
-    (** [subbytes s ofs len] returns the digest of the subsequence
-        of [s] starting at index [ofs] and containing [len] bytes. *)
+    (** [subbytes b ofs len] returns the digest of the subsequence
+        of [b] starting at index [ofs] and containing [len] bytes. *)
 
   val channel : in_channel -> int -> t
     (** Read characters from the channel and return their digest.
@@ -139,6 +139,46 @@ module type S = sig
         @raise Invalid_argument if the length of the argument
         is not [2 * hash_size], or if the arguments contains non-hexadecimal
         characters. *)
+
+(** {2 Rolling digests} *)
+
+  type state
+    (** The state of a rolling digest.  It records all the data that
+        has been added to it since it was created.  *)
+
+  val create : unit -> state
+    (** Return a fresh state. *)
+
+  val get_digest : state -> t
+    (** [get_digest st] returns the digest of all the data that has
+        been added to [st].
+        The rolling digest [st] should not be used afterwards. *)
+
+  val add_string : state -> string -> unit
+    (** [add_string st s] adds string [s] to the rolling digest [st]. *)
+
+  val add_bytes : state -> bytes -> unit
+    (** [add_bytes st b] adds byte sequence [b] to the rolling digest [st]. *)
+
+  val add_substring : state -> string -> int -> int -> unit
+    (** [add_substring st s ofs len] adds the substring
+        of [s] starting at index [ofs] and containing [len] characters
+        to the rolling digest [st]. *)
+
+  val add_subbytes : state -> bytes -> int -> int -> unit
+    (** [add_subbytes st b ofs len] adds the subsequence
+        of [b] starting at index [ofs] and containing [len] bytes
+        to the rolling digest [st]. *)
+
+  val add_channel : state -> in_channel -> int -> unit
+    (** If [len] is nonnegative, [add_channel st ic len] reads [len] bytes
+        from channel [ic] and adds them to the rolling digest [st].
+        It raises [End_of_file] if end-of-file is reached before
+        [len] characters are read.
+        If [len] is negative, [add_channel st ic len] reads all bytes
+        from [ic] until end-of-file is reached and adds them to the
+        rolling digest [st]. *)
+
 end
    (** The signature for a hash function that produces digests of length
        [hash_size] from character strings, byte arrays, and files.
@@ -146,21 +186,21 @@ end
 
 (** {1 Specific hash functions} *)
 
-module BLAKE2_128 : S
-  (** [BLAKE2_128] is the BLAKE2b hash function producing
+module BLAKE128 : S
+  (** [BLAKE128] is the BLAKE2b hash function producing
       128-bit (16-byte) digests.  It is cryptographically secure.
-      However, the small size of the digests enable brute-force attacks
-      in [2{^64}] attempts.
+      However, the small size of the digests enables brute-force collision
+      attacks in [2{^64}] attempts.
       @since 5.2 *)
 
-module BLAKE2_256 : S
-  (** [BLAKE2_256] is the BLAKE2b hash function producing
+module BLAKE256 : S
+  (** [BLAKE256] is the BLAKE2b hash function producing
       256-bit (32-byte) digests.  It is cryptographically secure,
       and the digests are large enough to thwart brute-force attacks.
       @since 5.2 *)
 
-module BLAKE2_512 : S
-  (** [BLAKE2_512] is the BLAKE2b hash function producing
+module BLAKE512 : S
+  (** [BLAKE512] is the BLAKE2b hash function producing
       512-bit (64-byte) digests.  It is cryptographically secure,
       and the digests are large enough to thwart brute-force attacks.
       @since 5.2 *)

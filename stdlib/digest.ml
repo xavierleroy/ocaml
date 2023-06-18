@@ -55,34 +55,77 @@ module type S = sig
   val input : in_channel -> t
   val to_hex : t -> string
   val from_hex : string -> t
+  type state
+  val create : unit -> state
+  val get_digest : state -> t
+  val add_string : state -> string -> unit
+  val add_bytes : state -> bytes -> unit
+  val add_substring : state -> string -> int -> int -> unit
+  val add_subbytes : state -> bytes -> int -> int -> unit
+  val add_channel : state -> in_channel -> int -> unit
 end
 
-(* BLAKE2 hashing, parameterized by hash size *)
+(* Interface for a low-level hash function *)
 
-module BLAKE2 (X: sig val hash_size : int end) : S = struct
+module type HASH = sig
+  type state
+  val hash_size : int
+  val create : unit -> state
+  val update : state -> string -> int -> int -> unit
+  val final : state -> string
+  val unsafe_string : string -> int -> int -> string
+end
+
+(* Generic construction, parameterized by a hash function *)
+
+module Make (H: HASH) : S = struct
 
 type t = string
-
-let hash_size =
-  if X.hash_size < 1 || X.hash_size > 64
-  then invalid_arg "Digest.BLAKE2: wrong hash size";
-  X.hash_size
 
 let compare = String.compare
 let equal = String.equal
 
-type state
+let hash_size = H.hash_size
 
-external create_gen: int -> string -> state = "caml_blake2_create"
-external update: state -> string -> int -> int -> unit = "caml_blake2_update"
-external final: state -> int -> t = "caml_blake2_final"
-external unsafe_string: int -> string -> string -> int -> int -> t
-                      = "caml_blake2_string"
+type state = H.state
 
-let create () = create_gen hash_size ""
+let create = H.create
+
+let get_digest = H.final
+
+let add_string st s = H.update st s 0 (String.length s)
+
+let add_bytes st b =  add_string st (Bytes.unsafe_to_string b)
+
+let add_substring st str ofs len =
+  if ofs < 0 || len < 0 || ofs > String.length str - len
+  then invalid_arg "Digest.add_substring";
+  H.update st str ofs len
+
+let add_subbytes st b ofs len =
+  add_substring st (Bytes.unsafe_to_string b) ofs len
+
+let add_channel st ic toread =
+  let buf_size = 4096 in
+  let buf = Bytes.create buf_size in
+  if toread < 0 then begin
+    let rec do_read () =
+      let n = In_channel.input ic buf 0 buf_size in
+      if n > 0 then (H.update st (Bytes.unsafe_to_string buf) 0 n; do_read ())
+    in do_read ()
+  end else begin
+    let rec do_read toread =
+      if toread > 0 then begin
+        let n = In_channel.input ic buf 0 (Int.min buf_size toread) in
+        if n = 0
+        then raise End_of_file
+        else (H.update st (Bytes.unsafe_to_string buf) 0 n; do_read (toread-n))
+      end
+    in do_read toread
+  end
 
 let string str =
-  unsafe_string hash_size "" str 0 (String.length str)
+  H.unsafe_string str 0 (String.length str)
 
 let bytes b =
   string (Bytes.unsafe_to_string b)
@@ -90,32 +133,15 @@ let bytes b =
 let substring str ofs len =
   if ofs < 0 || len < 0 || ofs > String.length str - len
   then invalid_arg "Digest.substring";
-  unsafe_string hash_size "" str ofs len
+  H.unsafe_string str ofs len
 
 let subbytes b ofs len =
   substring (Bytes.unsafe_to_string b) ofs len
 
 let channel ic toread =
-  let buf_size = 4096 in
-  let buf = Bytes.create buf_size in
-  let ctx = create () in
-  if toread < 0 then begin
-    let rec do_read () =
-      let n = In_channel.input ic buf 0 buf_size in
-      if n = 0
-      then final ctx hash_size
-      else (update ctx (Bytes.unsafe_to_string buf) 0 n; do_read ())
-    in do_read ()
-  end else begin
-    let rec do_read toread =
-      if toread = 0 then final ctx hash_size else begin
-        let n = In_channel.input ic buf 0 (Int.min buf_size toread) in
-        if n = 0
-        then raise End_of_file
-        else (update ctx (Bytes.unsafe_to_string buf) 0 n; do_read (toread - n))
-      end
-    in do_read toread
-  end
+  let st = H.create() in
+  add_channel st ic toread;
+  H.final st
 
 let file filename =
   In_channel.with_open_bin filename (fun ic -> channel ic (-1))
@@ -134,52 +160,48 @@ let from_hex s =
 
 end
 
-module BLAKE2_128 = BLAKE2(struct let hash_size = 16 end)
-module BLAKE2_256 = BLAKE2(struct let hash_size = 32 end)
-module BLAKE2_512 = BLAKE2(struct let hash_size = 64 end)
+(* BLAKE2b hashing *)
+
+module BLAKE2_hash (X: sig val hash_size : int val key : string end) : HASH =
+  struct
+    type state
+    let hash_size = X.hash_size
+
+    external create_gen : int -> string -> state = "caml_blake2_create"
+    let create () = create_gen X.hash_size X.key
+
+    external update : state -> string -> int -> int -> unit
+                          = "caml_blake2_update"
+
+    external final_gen : state -> int -> string = "caml_blake2_final"
+    let final st = final_gen st X.hash_size
+
+    external unsafe_string_gen : int -> string -> string -> int -> int -> string
+                          = "caml_blake2_string"
+    let unsafe_string s ofs len =
+      unsafe_string_gen X.hash_size X.key s ofs len
+  end
+
+module BLAKE128 = 
+  Make(BLAKE2_hash(struct let hash_size = 16 let key = "" end))
+module BLAKE256 = 
+  Make(BLAKE2_hash(struct let hash_size = 32 let key = "" end))
+module BLAKE512 = 
+  Make(BLAKE2_hash(struct let hash_size = 64 let key = "" end))
 
 (* MD5 hashing *)
 
-module MD5 = struct
-
-type t = string
-
-let hash_size = 16
-
-let compare = String.compare
-let equal = String.equal
-
-external unsafe_string: string -> int -> int -> t = "caml_md5_string"
-external channel: in_channel -> int -> t = "caml_md5_chan"
-
-let string str =
-  unsafe_string str 0 (String.length str)
-
-let bytes b = string (Bytes.unsafe_to_string b)
-
-let substring str ofs len =
-  if ofs < 0 || len < 0 || ofs > String.length str - len
-  then invalid_arg "Digest.substring"
-  else unsafe_string str ofs len
-
-let subbytes b ofs len = substring (Bytes.unsafe_to_string b) ofs len
-
-let file filename =
-  In_channel.with_open_bin filename (fun ic -> channel ic (-1))
-
-let output chan digest = output_string chan digest
-
-let input chan = really_input_string chan 16
-
-let to_hex d =
-  if String.length d <> 16 then invalid_arg "Digest.to_hex";
-  hex_of_string d
-
-let from_hex s =
-  if String.length s <> 32 then invalid_arg "Digest.from_hex";
-  string_of_hex s
-
+module MD5_hash : HASH =
+  struct
+    type state
+    let hash_size = 16
+    external create : unit -> state = "caml_md5_create"
+    external update : state -> string -> int -> int -> unit = "caml_md5_update"
+    external final : state -> string = "caml_md5_final"
+    external unsafe_string : string -> int -> int -> string = "caml_md5_string"
 end
+
+module MD5 = Make(MD5_hash)
 
 (* Default exported implementation is MD5 *)
 

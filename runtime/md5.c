@@ -17,6 +17,7 @@
 
 #include <string.h>
 #include "caml/alloc.h"
+#include "caml/custom.h"
 #include "caml/fail.h"
 #include "caml/md5.h"
 #include "caml/memory.h"
@@ -68,6 +69,7 @@ CAMLexport value caml_md5_channel(struct channel *chan, intnat toread)
   CAMLreturn (res);
 }
 
+/* No longer used, can be removed with a bootstrap */
 CAMLprim value caml_md5_chan(value vchan, value len)
 {
    CAMLparam2 (vchan, len);
@@ -81,6 +83,51 @@ CAMLexport void caml_md5_block(unsigned char digest[16],
   caml_MD5Init(&ctx);
   caml_MD5Update(&ctx, data, len);
   caml_MD5Final(digest, &ctx);
+}
+
+#define MD5Context_val(v) (*((struct MD5Context **) Data_custom_val(v)))
+
+static void caml_md5_finalize(value ctx)
+{
+  caml_stat_free(MD5Context_val(ctx));
+}
+
+static struct custom_operations caml_md5_operations = {
+  "_md5",
+  caml_md5_finalize,
+  custom_compare_default,
+  custom_hash_default,
+  custom_serialize_default,
+  custom_deserialize_default,
+  custom_compare_ext_default,
+  custom_fixed_length_default
+};
+
+CAMLprim value caml_md5_create(value vunit)
+{
+  struct MD5Context * ctx = caml_stat_alloc(sizeof(struct MD5Context));
+  value res =
+    caml_alloc_custom_mem(&caml_md5_operations,
+                          sizeof(struct MD5Context *),
+                          sizeof(struct MD5Context));
+  caml_MD5Init(ctx);
+  MD5Context_val(res) = ctx;
+  return res;
+}
+
+CAMLprim value caml_md5_update(value ctx, value buf, value ofs, value len)
+{
+  caml_MD5Update(MD5Context_val(ctx),
+                 &Byte_u(buf, Long_val(ofs)), Long_val(len));
+  return Val_unit;
+}
+
+CAMLprim value caml_md5_final(value ctx)
+{
+  CAMLparam1(ctx);
+  value hash = caml_alloc_string(16);
+  caml_MD5Final(&Byte_u(hash, 0), MD5Context_val(ctx));
+  CAMLreturn(hash);
 }
 
 /*
