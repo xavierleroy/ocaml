@@ -117,7 +117,7 @@ Working version
 - #12459: Add `Random.int_in_range`, `Random.int32_in_range`,
   `Random.int64_in_range`, `Random.nativeint_in_range`, and their counterpart in
   `Random.State`.
-  (Glen Mével, review by Gabriel Scherer and Xavier Leroy)
+  (Glen Mével, review by Gabriel Scherer, Xavier Leroy, Florian Angeletti)
 
 ### Other libraries:
 
