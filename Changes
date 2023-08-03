@@ -114,6 +114,11 @@ Working version
    Guillaume Munch-Maccagnoni, KC Sivaramakrishnan, Stefan Muenzel,
    Xavier Leroy)
 
+- #12459: Add `Random.int_in_range`, `Random.int32_in_range`,
+  `Random.int64_in_range`, `Random.nativeint_in_range`, and their counterpart in
+  `Random.State`.
+  (Glen Mével, review by Gabriel Scherer and Xavier Leroy)
+
 ### Other libraries:
 
 - #12213: Dynlink library, improve legibility of error messages
