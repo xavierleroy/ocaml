@@ -162,20 +162,20 @@
        std      28, 0x0B0(TMP)
     /* Save caller-save floating-point registers */
     /* (callee-saves are preserved by C functions) */
-       stfd     1,  0x0B8(TMP)
-       stfd     2,  0x0C0(TMP)
-       stfd     3,  0x0C8(TMP)
-       stfd     4,  0x0D0(TMP)
-       stfd     5,  0x0D8(TMP)
-       stfd     6,  0x0E0(TMP)
-       stfd     7,  0x0E8(TMP)
-       stfd     8,  0x0F0(TMP)
-       stfd     9,  0x0F8(TMP)
-       stfd     10, 0x100(TMP)
-       stfd     11, 0x108(TMP)
-       stfd     12, 0x110(TMP)
-       stfd     13, 0x118(TMP)
-       stfd     14, 0x120(TMP)
+       stfd     0,  0x0B8(TMP)
+       stfd     1,  0x0C0(TMP)
+       stfd     2,  0x0C8(TMP)
+       stfd     3,  0x0D0(TMP)
+       stfd     4,  0x0D8(TMP)
+       stfd     5,  0x0E0(TMP)
+       stfd     6,  0x0E8(TMP)
+       stfd     7,  0x0F0(TMP)
+       stfd     8,  0x0F8(TMP)
+       stfd     9,  0x100(TMP)
+       stfd     10, 0x108(TMP)
+       stfd     11, 0x110(TMP)
+       stfd     12, 0x118(TMP)
+       stfd     13, 0x120(TMP)
     /* Save bucket to gc_regs */
        std      TMP, Caml_state(gc_regs)
 .endm
@@ -210,20 +210,20 @@
        ld       28, 0x0B0(TMP)
     /* Save caller-save floating-point registers
        (callee-saves are preserved by C functions) */
-       lfd      1,  0x0B8(TMP)
-       lfd      2,  0x0C0(TMP)
-       lfd      3,  0x0C8(TMP)
-       lfd      4,  0x0D0(TMP)
-       lfd      5,  0x0D8(TMP)
-       lfd      6,  0x0E0(TMP)
-       lfd      7,  0x0E8(TMP)
-       lfd      8,  0x0F0(TMP)
-       lfd      9,  0x0F8(TMP)
-       lfd      10, 0x100(TMP)
-       lfd      11, 0x108(TMP)
-       lfd      12, 0x110(TMP)
-       lfd      13, 0x118(TMP)
-       lfd      14, 0x120(TMP)
+       lfd      0,  0x0B8(TMP)
+       lfd      1,  0x0C0(TMP)
+       lfd      2,  0x0C8(TMP)
+       lfd      3,  0x0D0(TMP)
+       lfd      4,  0x0D8(TMP)
+       lfd      5,  0x0E0(TMP)
+       lfd      6,  0x0E8(TMP)
+       lfd      7,  0x0F0(TMP)
+       lfd      8,  0x0F8(TMP)
+       lfd      9,  0x100(TMP)
+       lfd      10, 0x108(TMP)
+       lfd      11, 0x110(TMP)
+       lfd      12, 0x118(TMP)
+       lfd      13, 0x120(TMP)
     /* Put gc_regs struct back in bucket linked list */
        ld       TMP2, Caml_state(gc_regs_buckets)
        std      TMP2, 0(TMP)  /* next ptr */
@@ -288,6 +288,15 @@ ENDFUNCTION caml_call_gc
 
 /* Call a C function from OCaml.  Function to call is in C_CALL_FUN */
 
+.macro RET_FROM_C_CALL
+        lbz     TMP, Caml_state(action_pending)
+        cmplwi  TMP, 0
+        beqlr+  0
+        li      TMP, -1
+        std     TMP, Caml_state(young_limit)
+        blr
+.endm
+
 FUNCTION caml_c_call
 .Lcaml_c_call:
    /* Save return address in caller's frame AND in a callee-save register */
@@ -311,7 +320,7 @@ FUNCTION caml_c_call
     /* Switch from C to OCaml */
         SWITCH_C_TO_OCAML
     /* Return to caller */
-        blr
+        RET_FROM_C_CALL
 ENDFUNCTION caml_c_call
 
 FUNCTION caml_c_call_stack_args
@@ -351,7 +360,7 @@ FUNCTION caml_c_call_stack_args
     /* Switch from C to OCaml */
         SWITCH_C_TO_OCAML
     /* Return to caller */
-        blr
+        RET_FROM_C_CALL
 ENDFUNCTION caml_c_call_stack_args
 
 /* Raise an exception from OCaml */

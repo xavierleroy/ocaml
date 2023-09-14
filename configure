@@ -824,10 +824,8 @@ build_ocamldebug
 with_debugger
 as_has_debug_prefix_map
 cc_has_debug_prefix_map
-ocamltest_unix_include
-ocamltest_unix_path
-ocamltest_unix_name
-ocamltest_unix_impl
+unix_directory
+unix_library
 ocamltest_libunix
 ocamltest_CPP
 lib_unix
@@ -3246,11 +3244,10 @@ oc_dll_ldflags=""
 oc_exe_ldflags=""
 
 tsan=false
-oc_tsan_cflags="-fsanitize=thread"
-
 # Passed to the linker by ocamlopt when tsan is enabled
-
+oc_tsan_cflags="-fsanitize=thread"
 oc_tsan_cppflags="-DWITH_THREAD_SANITIZER"
+tsan_distinguish_volatile_cflags=""
 
 # The C# compiler and its flags
 CSC=""
@@ -3270,9 +3267,8 @@ lib_systhreads=false
 lib_unix=false
 ocamltest_libunix=None
 ocamltest_unix_impl="dummy"
-ocamltest_unix_name=""
-ocamltest_unix_path=""
-ocamltest_unix_include=""
+unix_library=""
+unix_directory=""
 
 # Information about the package
 
@@ -3310,8 +3306,6 @@ OCAML_VERSION_SHORT=5.2
 # Note: This is present for the flexdll bootstrap where it exposed as the old
 # TOOLPREF variable. It would be better if flexdll where updated to require
 # WINDRES instead.
-
-
 
 
 
@@ -13629,9 +13623,8 @@ then :
   ac_config_links="$ac_config_links otherlibs/unix/unix.ml:otherlibs/unix/unix_${unix_or_win32}.ml"
 
   ocamltest_unix_impl="real"
-  ocamltest_unix_name="unix"
-  ocamltest_unix_path='$(ROOTDIR)/otherlibs/unix'
-  ocamltest_unix_include='-I $(ROOTDIR)/otherlibs/unix '
+  unix_directory="otherlibs/unix"
+  unix_library="${unix_directory}/unix"
 else $as_nop
   ocamltest_libunix="None"
 fi
@@ -13737,6 +13730,48 @@ case $ocaml_cv_cc_vendor in #(
   cc_warnings="-Wall -Wint-conversion -Wstrict-prototypes \
 -Wold-style-definition" ;;
 esac
+
+# Use -Wold-style-declaration if supported
+as_CACHEVAR=`printf "%s\n" "ax_cv_check_cflags_$warn_error_flag_-Wold-style-declaration" | $as_tr_sh`
+{ printf "%s\n" "$as_me:${as_lineno-$LINENO}: checking whether C compiler accepts -Wold-style-declaration" >&5
+printf %s "checking whether C compiler accepts -Wold-style-declaration... " >&6; }
+if eval test \${$as_CACHEVAR+y}
+then :
+  printf %s "(cached) " >&6
+else $as_nop
+
+  ax_check_save_flags=$CFLAGS
+  CFLAGS="$CFLAGS $warn_error_flag -Wold-style-declaration"
+  cat confdefs.h - <<_ACEOF >conftest.$ac_ext
+/* end confdefs.h.  */
+
+int
+main (void)
+{
+
+  ;
+  return 0;
+}
+_ACEOF
+if ac_fn_c_try_compile "$LINENO"
+then :
+  eval "$as_CACHEVAR=yes"
+else $as_nop
+  eval "$as_CACHEVAR=no"
+fi
+rm -f core conftest.err conftest.$ac_objext conftest.beam conftest.$ac_ext
+  CFLAGS=$ax_check_save_flags
+fi
+eval ac_res=\$$as_CACHEVAR
+	       { printf "%s\n" "$as_me:${as_lineno-$LINENO}: result: $ac_res" >&5
+printf "%s\n" "$ac_res" >&6; }
+if eval test \"x\$"$as_CACHEVAR"\" = x"yes"
+then :
+  cc_warnings="$cc_warnings -Wold-style-declaration"
+else $as_nop
+  :
+fi
+
 
 case $enable_warn_error,true in #(
   yes,*|,true) :
@@ -15431,13 +15466,19 @@ arch=none
 model=default
 system=unknown
 
+# In all the cases below, if $arch is set so then so too must $system,
+# preserving $arch = 'none' <=> $system = 'unknown'
 has_native_backend=no
 native_ldflags=""
 case $host in #(
   i[3456]86-*-linux*) :
-    arch=i386; system=linux_elf ;; #(
-  i[3456]86-*-*bsd*) :
-    arch=i386; system=bsd_elf ;; #(
+    arch=i386; system=linux ;; #(
+  i[3456]86-*-freebsd*) :
+    arch=i386; system=freebsd ;; #(
+  i[3456]86-*-netbsd*) :
+    arch=i386; system=netbsd ;; #(
+  i[3456]86-*-openbsd*) :
+    arch=i386; system=openbsd ;; #(
   i[3456]86-*-haiku*) :
     arch=i386; system=beos ;; #(
   i[3456]86-*-cygwin) :
@@ -15451,24 +15492,24 @@ case $host in #(
   x86_64-pc-windows) :
     arch=amd64; system=win64 ;; #(
   powerpc64le*-*-linux*) :
-    has_native_backend=yes; arch=power; model=ppc64le; system=elf ;; #(
+    has_native_backend=yes; arch=power; model=ppc64le; system=linux ;; #(
   s390x*-*-linux*) :
-    has_native_backend=yes; arch=s390x; model=z10; system=elf ;; #(
+    has_native_backend=yes; arch=s390x; model=z10; system=linux ;; #(
   # expected to match "gnueabihf" as well as "musleabihf"
   armv6*-*-linux-*eabihf) :
-    arch=arm; model=armv6; system=linux_eabihf ;; #(
+    arch=arm; model=armv6; system=linux ;; #(
   armv7*-*-linux-*eabihf) :
-    arch=arm; model=armv7; system=linux_eabihf ;; #(
+    arch=arm; model=armv7; system=linux ;; #(
   armv8*-*-linux-*eabihf) :
-    arch=arm; model=armv8; system=linux_eabihf ;; #(
+    arch=arm; model=armv8; system=linux ;; #(
   armv8*-*-linux-*eabi) :
-    arch=arm; model=armv8; system=linux_eabi ;; #(
+    arch=arm; model=armv8; system=linux ;; #(
   armv7*-*-linux-*eabi) :
-    arch=arm; model=armv7; system=linux_eabi ;; #(
+    arch=arm; model=armv7; system=linux ;; #(
   armv6t2*-*-linux-*eabi) :
-    arch=arm; model=armv6t2; system=linux_eabi ;; #(
+    arch=arm; model=armv6t2; system=linux ;; #(
   armv6*-*-linux-*eabi) :
-    arch=arm; model=armv6; system=linux_eabi ;; #(
+    arch=arm; model=armv6; system=linux ;; #(
   armv6*-*-freebsd*) :
     arch=arm; model=armv6; system=freebsd ;; #(
   earmv6*-*-netbsd*) :
@@ -15476,17 +15517,17 @@ case $host in #(
   earmv7*-*-netbsd*) :
     arch=arm; model=armv7; system=netbsd ;; #(
   armv5te*-*-linux-*eabi) :
-    arch=arm; model=armv5te; system=linux_eabi ;; #(
+    arch=arm; model=armv5te; system=linux ;; #(
   armv5*-*-linux-*eabi) :
-    arch=arm; model=armv5; system=linux_eabi ;; #(
+    arch=arm; model=armv5; system=linux ;; #(
   arm*-*-linux-*eabihf) :
-    arch=arm; system=linux_eabihf ;; #(
+    arch=arm; system=linux ;; #(
   arm*-*-linux-*eabi) :
-    arch=arm; system=linux_eabi ;; #(
+    arch=arm; system=linux ;; #(
   arm*-*-openbsd*) :
-    arch=arm; system=bsd ;; #(
+    arch=arm; system=openbsd ;; #(
   zaurus*-*-openbsd*) :
-    arch=arm; system=bsd ;; #(
+    arch=arm; system=openbsd ;; #(
   x86_64-*-linux*) :
     has_native_backend=yes; arch=amd64; system=linux ;; #(
   x86_64-*-gnu*) :
@@ -16525,12 +16566,53 @@ rm -f core conftest.err conftest.$ac_objext conftest.beam \
 esac
   case $ocaml_cv_cc_vendor in #(
   gcc*) :
-    oc_tsan_cflags="$oc_tsan_cflags --param=tsan-distinguish-volatile=1" ;; #(
+    tsan_distinguish_volatile_cflags="--param=tsan-distinguish-volatile=1" ;; #(
   clang*) :
-    oc_tsan_cflags="$oc_tsan_cflags -mllvm -tsan-distinguish-volatile" ;; #(
+    tsan_distinguish_volatile_cflags="-mllvm -tsan-distinguish-volatile" ;; #(
   *) :
      ;;
 esac
+  as_CACHEVAR=`printf "%s\n" "ax_cv_check_cflags_$warn_error_flag_-fsanitize=thread $tsan_distinguish_volatile_cflags" | $as_tr_sh`
+{ printf "%s\n" "$as_me:${as_lineno-$LINENO}: checking whether C compiler accepts -fsanitize=thread $tsan_distinguish_volatile_cflags" >&5
+printf %s "checking whether C compiler accepts -fsanitize=thread $tsan_distinguish_volatile_cflags... " >&6; }
+if eval test \${$as_CACHEVAR+y}
+then :
+  printf %s "(cached) " >&6
+else $as_nop
+
+  ax_check_save_flags=$CFLAGS
+  CFLAGS="$CFLAGS $warn_error_flag -fsanitize=thread $tsan_distinguish_volatile_cflags"
+  cat confdefs.h - <<_ACEOF >conftest.$ac_ext
+/* end confdefs.h.  */
+
+int
+main (void)
+{
+
+  ;
+  return 0;
+}
+_ACEOF
+if ac_fn_c_try_compile "$LINENO"
+then :
+  eval "$as_CACHEVAR=yes"
+else $as_nop
+  eval "$as_CACHEVAR=no"
+fi
+rm -f core conftest.err conftest.$ac_objext conftest.beam conftest.$ac_ext
+  CFLAGS=$ax_check_save_flags
+fi
+eval ac_res=\$$as_CACHEVAR
+	       { printf "%s\n" "$as_me:${as_lineno-$LINENO}: result: $ac_res" >&5
+printf "%s\n" "$ac_res" >&6; }
+if eval test \"x\$"$as_CACHEVAR"\" = x"yes"
+then :
+  :
+else $as_nop
+  as_fn_error $? "The C compiler does not support the \`$tsan_distinguish_volatile_cflags' flag. Try upgrading to GCC >= 11, or to Clang >= 11." "$LINENO" 5
+fi
+
+  oc_tsan_cflags="$oc_tsan_cflags $tsan_distinguish_volatile_cflags"
   common_cppflags="$common_cppflags $oc_tsan_cppflags"
   native_cflags="$native_cflags $oc_tsan_cflags"
   ocamlc_cflags="$ocamlc_cflags $oc_tsan_cflags"
@@ -19687,6 +19769,9 @@ esac
 
 if test -n "$ocamltest"
 then :
+  ocamltest_unix_mod="ocamltest/ocamltest_unix_${ocamltest_unix_impl}.ml"
+  ac_config_links="$ac_config_links ocamltest/ocamltest_unix.ml:${ocamltest_unix_mod}"
+
   for ac_prog in patdiff diff
 do
   # Extract the first word of "$ac_prog", so it can be a program name with args.
@@ -21214,6 +21299,7 @@ do
     "otherlibs/str/META") CONFIG_FILES="$CONFIG_FILES otherlibs/str/META" ;;
     "otherlibs/systhreads/META") CONFIG_FILES="$CONFIG_FILES otherlibs/systhreads/META" ;;
     "ocamldoc/META") CONFIG_FILES="$CONFIG_FILES ocamldoc/META" ;;
+    "ocamltest/ocamltest_unix.ml") CONFIG_LINKS="$CONFIG_LINKS ocamltest/ocamltest_unix.ml:${ocamltest_unix_mod}" ;;
 
   *) as_fn_error $? "invalid argument: \`$ac_config_target'" "$LINENO" 5;;
   esac

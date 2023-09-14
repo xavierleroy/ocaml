@@ -2216,7 +2216,7 @@ as follows:
 \begin{tableau}{|l|l|}{C expression}{Returns}
 \entree{"Caml_ba_array_val("\var{v}")->num_dims"}{number of dimensions}
 \entree{"Caml_ba_array_val("\var{v}")->dim["\var{i}"]"}{\var{i}-th dimension}
-\entree{"Caml_ba_array_val("\var{v}")->flags & BIGARRAY_KIND_MASK"}{kind of array elements}
+\entree{"Caml_ba_array_val("\var{v}")->flags & CAML_BA_KIND_MASK"}{kind of array elements}
 \end{tableau}
 The kind of array elements is one of the following constants:
 \begin{tableau}{|l|l|}{Constant}{Element kind}
@@ -2403,6 +2403,11 @@ The corresponding C type must be "intnat".
 
 {\bf Note:} Do not use the C "int" type in correspondence with "(int
 [\@untagged])". This is because they often differ in size.
+
+It is possible to annotate with "[\@untagged]" any immediate type, i.e. types
+that are represented like "int". This includes "bool", "char", any variant
+type with only constant constructors. Note: this does not include
+"Unix.file_descr" which is not represented as an interger on all platforms.
 
 \subsection{ss:c-direct-call}{Direct C call}
 
