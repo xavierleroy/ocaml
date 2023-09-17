@@ -24,6 +24,7 @@
 #include "caml/alloc.h"
 #include "caml/callback.h"
 #include "caml/codefrag.h"
+#include "caml/compress.h"
 #include "caml/config.h"
 #include "caml/custom.h"
 #include "caml/fail.h"
@@ -37,9 +38,6 @@
 #include "caml/reverse.h"
 #include "caml/shared_heap.h"
 #include "caml/signals.h"
-#ifdef HAS_ZSTD
-#include <zstd.h>
-#endif
 
 /* Item on the stack with defined operation */
 struct intern_item {
@@ -793,25 +791,28 @@ static void intern_decompress_input(struct caml_intern_state * s,
   s->compressed = h->compressed;
   if (! h->compressed) return;
 #ifdef HAS_ZSTD
-  unsigned char * blk = caml_stat_alloc_noexc(h->uncompressed_data_len);
-  if (blk == NULL) {
-    intern_cleanup(s);
-    caml_raise_out_of_memory();
+  if (caml_zstd_available()) {
+    unsigned char * blk = caml_stat_alloc_noexc(h->uncompressed_data_len);
+    if (blk == NULL) {
+      intern_cleanup(s);
+      caml_raise_out_of_memory();
+    }
+    size_t res =
+      caml_zstd_ops.decompress(blk, h->uncompressed_data_len,
+                               s->intern_src, h->data_len);
+    if (res != h->uncompressed_data_len) {
+      caml_stat_free(blk);
+      intern_cleanup(s);
+      intern_failwith2(fun_name, "decompression error");
+    }
+    if (s->intern_input != NULL) caml_stat_free(s->intern_input);
+    s->intern_input = blk;  /* to be freed at end of demarshaling */
+    s->intern_src = blk;
+    return;
   }
-  size_t res =
-    ZSTD_decompress(blk, h->uncompressed_data_len, s->intern_src, h->data_len);
-  if (res != h->uncompressed_data_len) {
-    caml_stat_free(blk);
-    intern_cleanup(s);
-    intern_failwith2(fun_name, "decompression error");
-  }
-  if (s->intern_input != NULL) caml_stat_free(s->intern_input);
-  s->intern_input = blk;  /* to be freed at end of demarshaling */
-  s->intern_src = blk;
-#else
+#endif
   intern_cleanup(s);
   intern_failwith2(fun_name, "compressed object, cannot decompress");
-#endif
 }
 
 /* Reading from a channel */

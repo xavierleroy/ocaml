@@ -643,6 +643,7 @@ runtime_COMMON_C_SOURCES = \
   callback \
   codefrag \
   compare \
+  compress \
   custom \
   debugger \
   domain \

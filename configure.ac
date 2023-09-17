@@ -2098,16 +2098,14 @@ AS_IF([test x"$with_zstd" != "xno"],
   AS_IF([${PKG_CONFIG} libzstd 2>/dev/null],
     # Now check the version
     [AS_IF([${PKG_CONFIG} --atleast-version 1.4 libzstd],
-      [zstd_libs=`${PKG_CONFIG} --libs libzstd`
-       zstd_flags=`${PKG_CONFIG} --cflags libzstd`
+      [zstd_flags=`${PKG_CONFIG} --cflags libzstd`
        zstd_status="ok"],
       [zstd_status="zstd library too old: version 1.4 or later is needed"])],
   # Otherwise, try to find zstd the old way,
   # assuming it is installed in default places
     [AC_CHECK_LIB([zstd], [ZSTD_createCCtx],
       [AC_CHECK_DECL([ZSTD_compressStream2],
-        [zstd_libs="-lzstd"
-         zstd_flags=""
+        [zstd_flags=""
          zstd_status="ok"],
         [zstd_status="zstd library too old: version 1.4 or later is needed"],
         [[#include <zstd.h>]])],
@@ -2115,7 +2113,6 @@ AS_IF([test x"$with_zstd" != "xno"],
 
 AS_IF([test x"$zstd_status" = "xok"],
   [AC_MSG_NOTICE([compressed marshaling supported])
-   cclibs="$cclibs $zstd_libs"
    internal_cppflags="$internal_cppflags $zstd_flags"
    AC_DEFINE([HAS_ZSTD])],
   [AS_CASE(["$with_zstd"],

@@ -22,6 +22,7 @@
 #include <string.h>
 #include "caml/alloc.h"
 #include "caml/codefrag.h"
+#include "caml/compress.h"
 #include "caml/config.h"
 #include "caml/custom.h"
 #include "caml/fail.h"
@@ -31,11 +32,9 @@
 #include "caml/memory.h"
 #include "caml/misc.h"
 #include "caml/mlvalues.h"
+#include "caml/osdeps.h"
 #include "caml/reverse.h"
 #include "caml/shared_heap.h"
-#ifdef HAS_ZSTD
-#include <zstd.h>
-#endif
 
 /* Flags affecting marshaling */
 
@@ -916,9 +915,9 @@ static void extern_rec(struct caml_extern_state* s, value v)
   /* Never reached as function leaves with return */
 }
 
-/* Compress the output */
-
 #ifdef HAS_ZSTD
+
+/* Compress the output */
 
 static void extern_compress_output(struct caml_extern_state* s)
 {
@@ -928,7 +927,7 @@ static void extern_compress_output(struct caml_extern_state* s)
   struct output_block * input, * output, * output_head;
   int rc;
 
-  ctx = ZSTD_createCCtx();
+  ctx = caml_zstd_ops.createCCtx();
   if (ctx == NULL) extern_out_of_memory(s);
   input = s->extern_output_first;
   output_head = caml_stat_alloc_noexc(sizeof(struct output_block));
@@ -961,12 +960,12 @@ static void extern_compress_output(struct caml_extern_state* s)
       }
       in.pos = 0;
     }
-    rc = ZSTD_compressStream2(ctx, &out, &in,
-                              input == NULL ? ZSTD_e_end : ZSTD_e_continue);
+    rc = caml_zstd_ops.compressStream2
+              (ctx, &out, &in, input == NULL ? ZSTD_e_end : ZSTD_e_continue);
   } while (! (input == NULL && rc == 0));
   output->end = output->data + out.pos;
   s->extern_output_first = output_head;
-  ZSTD_freeCCtx(ctx);
+  caml_zstd_ops.freeCCtx(ctx);
   return;
 oom2:
   /* The old output blocks that remain to be freed */
@@ -978,7 +977,7 @@ oom2:
     output = next;
   }
 oom1:
-  ZSTD_freeCCtx(ctx);
+  caml_zstd_ops.freeCCtx(ctx);
   extern_out_of_memory(s);
 }
 
@@ -995,13 +994,12 @@ static intnat extern_value(struct caml_extern_state* s, value v, value flags,
   intnat res_len;
   /* Parse flag list */
   s->extern_flags = caml_convert_flag_list(flags, extern_flag_values);
-  /* Turn compression off if Zlib missing or if called from
+  /* Turn compression off if ZSTD is missing or if called from
      caml_output_value_to_block */
-#ifdef HAS_ZSTD
-  if (s->extern_userprovided_output) s->extern_flags &= ~COMPRESSED;
-#else
-  s->extern_flags &= ~COMPRESSED;
-#endif
+  if ((s->extern_flags & COMPRESSED)
+      && (s->extern_userprovided_output || !caml_zstd_available())) {
+    s->extern_flags &= ~COMPRESSED;
+  }
   /* Initializations */
   s->obj_counter = 0;
   s->size_32 = 0;
