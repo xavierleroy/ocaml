@@ -37,9 +37,6 @@
 #include "caml/reverse.h"
 #include "caml/shared_heap.h"
 #include "caml/signals.h"
-#ifdef HAS_ZSTD
-#include <zstd.h>
-#endif
 
 /* Item on the stack with defined operation */
 struct intern_item {
@@ -90,9 +87,6 @@ struct caml_intern_state {
   header_t * intern_dest;
   /* Writing pointer in destination block. Only used when the object fits in
      the minor heap. */
-
-  char compressed;
-  /* 1 if the compressed format is in use, 0 otherwise */
 };
 
 /* Allocates the domain local intern state if needed */
@@ -184,21 +178,6 @@ static uintnat read64u(struct caml_intern_state* s)
   return res;
 }
 #endif
-
-static int readvlq(struct caml_intern_state* s, /*out*/ uintnat * res)
-{
-  unsigned char c = read8u(s);
-  uintnat n = c & 0x7F;
-  int retcode = 0;
-  while ((c & 0x80) != 0) {
-    c = read8u(s);
-    uintnat n7 = n << 7;
-    if (n != n7 >> 7) retcode = -1;
-    n = n7 | (c & 0x7F);
-  }
-  if (res) *res = n;
-  return retcode;
-}
 
 Caml_inline void readblock(struct caml_intern_state* s,
                            void * dest, intnat len)
@@ -525,7 +504,7 @@ static void intern_rec(struct caml_intern_state* s,
       case CODE_SHARED8:
         ofs = read8u(s);
       read_shared:
-        if (!s->compressed) ofs = s->obj_counter - ofs;
+        /*if (!s->compressed)*/ ofs = s->obj_counter - ofs;
         CAMLassert (ofs < s->obj_counter);
         CAMLassert (s->intern_obj_table != NULL);
         v = s->intern_obj_table[ofs];
@@ -714,10 +693,8 @@ struct marshal_header {
   uint32_t magic;
   int header_len;
   uintnat data_len;
-  uintnat uncompressed_data_len;
   uintnat num_objects;
   uintnat whsize;
-  int compressed;
 };
 
 static void intern_failwith2(const char * fun_name, const char * msg)
@@ -736,8 +713,7 @@ static void caml_parse_header(struct caml_intern_state* s,
   switch(h->magic) {
   case Intext_magic_number_small:
     h->header_len = 20;
-    h->compressed = 0;
-    h->data_len = h->uncompressed_data_len = read32u(s);
+    h->data_len = read32u(s);
     h->num_objects = read32u(s);
 #ifdef ARCH_SIXTYFOUR
     read32u(s);
@@ -750,9 +726,8 @@ static void caml_parse_header(struct caml_intern_state* s,
   case Intext_magic_number_big:
 #ifdef ARCH_SIXTYFOUR
     h->header_len = 32;
-    h->compressed = 0;
     read32u(s);
-    h->data_len = h->uncompressed_data_len = read64u(s);
+    h->data_len = read64u(s);
     h->num_objects = read64u(s);
     h->whsize = read64u(s);
 #else
@@ -760,62 +735,9 @@ static void caml_parse_header(struct caml_intern_state* s,
       (fun_name, "object too large to be read back on a 32-bit platform");
 #endif
     break;
-  case Intext_magic_number_compressed:
-    h->header_len = read8u(s) & 0x3F;
-    h->compressed = 1;
-    int overflow = 0;
-    overflow |= readvlq(s, &h->data_len);
-    overflow |= readvlq(s, &h->uncompressed_data_len);
-    overflow |= readvlq(s, &h->num_objects);
-#ifdef ARCH_SIXTYFOUR
-    (void) readvlq(s, NULL);
-    overflow |= readvlq(s, &h->whsize);
-#else
-    overflow |= readvlq(s, &h->whsize);
-    (void) readvlq(s, NULL);
-#endif
-    if (overflow) {
-      intern_failwith2
-        (fun_name, "object too large to be read back on this platform");
-    }
-    break;
   default:
     intern_failwith2(fun_name, "bad object");
   }
-}
-
-/* Decompress the input if needed.
-   Must be called after [intern_init].
-   Should preferably be called before [intern_alloc_storage]
-   when the memory block for the compressed input can be freed
-   before more memory is allocated. */
-
-static void intern_decompress_input(struct caml_intern_state * s,
-                                    const char * fun_name,
-                                    struct marshal_header * h)
-{
-  s->compressed = h->compressed;
-  if (! h->compressed) return;
-#ifdef HAS_ZSTD
-  unsigned char * blk = malloc(h->uncompressed_data_len);
-  if (blk == NULL) {
-    intern_cleanup(s);
-    caml_raise_out_of_memory();
-  }
-  size_t res =
-    ZSTD_decompress(blk, h->uncompressed_data_len, s->intern_src, h->data_len);
-  if (res != h->uncompressed_data_len) {
-    free(blk);
-    intern_cleanup(s);
-    intern_failwith2(fun_name, "decompression error");
-  }
-  if (s->intern_input != NULL) free(s->intern_input);
-  s->intern_input = blk;  /* to be freed at end of demarshaling */
-  s->intern_src = blk;
-#else
-  intern_cleanup(s);
-  intern_failwith2(fun_name, "compressed object, cannot decompress");
-#endif
 }
 
 /* Reading from a channel */
@@ -842,8 +764,6 @@ value caml_input_val(struct channel *chan)
   switch (read32u(s)) {
   case Intext_magic_number_big:
     hlen = 32; break;
-  case Intext_magic_number_compressed:
-    hlen = read8u(s) & 0x3F; break;
   default:
     hlen = 20; break;
   }
@@ -869,7 +789,6 @@ value caml_input_val(struct channel *chan)
   }
   /* Initialize global state */
   intern_init(s, block, block);
-  intern_decompress_input(s, "input_value", &h);
   intern_alloc_storage(s, h.whsize, h.num_objects);
   /* Fill it in */
   intern_rec(s, &res);
@@ -911,8 +830,6 @@ CAMLexport value caml_input_val_from_bytes(value str, intnat ofs)
   /* Allocate result */
   intern_alloc_storage(s, h.whsize, h.num_objects);
   s->intern_src = &Byte_u(str, ofs + h.header_len); /* If a GC occurred */
-  /* Decompress if needed */
-  intern_decompress_input(s, "input_val_from_string", &h);
   /* Fill it in */
   intern_rec(s, &obj);
   CAMLreturn (intern_end(s, obj));
@@ -927,8 +844,6 @@ static value input_val_from_block(struct caml_intern_state* s,
                                   struct marshal_header * h)
 {
   value obj;
-  /* Decompress if needed */
-  intern_decompress_input(s, "input_val_from_block", h);
   /* Allocate result */
   intern_alloc_storage(s, h->whsize, h->num_objects);
   /* Fill it in */
@@ -969,9 +884,8 @@ CAMLexport value caml_input_value_from_block(const char * data, intnat len)
    16 bytes are necessary and sufficient because:
    - for the "small" model: the length is at positions 4 to 7
    - for the "big" model: the length is at positions 8 to 15
-   - for the "compressed" model: the length is at positions 5 to at most 14
    16 bytes is not too much because the smallest marshalled object
-   is 20 bytes long (a small integer in the "compressed" model),
+   is > 20 bytes long (a small integer in the small model),
    so we're not reading past the end of the data.
  */
 
@@ -998,12 +912,6 @@ CAMLprim value caml_marshal_data_size(value buff, value ofs)
     caml_failwith("Marshal.data_size: "
                   "object too large to be read back on a 32-bit platform");
 #endif
-    break;
-  case Intext_magic_number_compressed:
-    header_len = read8u(s) & 0x3F;
-    if (readvlq(s, &data_len) != 0)
-      caml_failwith("Marshal.data_size: "
-                    "object too large to be read back on this platform");
     break;
   default:
     caml_failwith("Marshal.data_size: bad object");
