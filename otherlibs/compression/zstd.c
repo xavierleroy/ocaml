@@ -77,34 +77,117 @@ static int storeheader(char dst[MAX_HEADER_SIZE],
   return pos;
 }
 
+static void compress_blocks(char header[MAX_INTEXT_HEADER_SIZE],
+                            int header_len,
+                            struct output_block * input,
+                            /*out*/ struct output_block ** result,
+                            /*out*/ uintnat * result_len)
+{
+  ZSTD_CCtx * ctx;
+  ZSTD_inBuffer in;
+  ZSTD_outBuffer out;
+  struct output_block * output, * output_head;
+  uintnat output_len;
+  int rc;
+
+  ctx = ZSTD_createCCtx();
+  if (ctx == NULL) goto oom1;
+  /* First output block */
+  output_head = caml_stat_alloc_noexc(sizeof(struct output_block));
+  if (output_head == NULL) goto oom2;
+  output = output_head;
+  output->next = NULL;
+  output_len = 0;
+  out.dst = output->data; out.size = SIZE_EXTERN_OUTPUT_BLOCK; out.pos = 0;
+  /* Start by compressing the header */
+  in.src = header; in.size = header_len; in.pos = 0;
+  do {
+    ZSTD_compressStream2(ctx, &out, &in, ZSTD_e_continue);
+  } while (in.pos < in.size);
+  /* Now, compress the input blocks */
+  in.src = input->data; in.size = input->end - input->data; in.pos = 0;
+  do {
+    if (out.pos == out.size) {
+      /* Finish current output block */
+      output->end = output->data + out.pos;
+      output_len += out.pos;
+      /* Allocate fresh output block */
+      struct output_block * next =
+        caml_stat_alloc_noexc(sizeof(struct output_block));
+      if (next == NULL) goto oom3;
+      output->next = next;
+      output = next;
+      output->next = NULL;
+      out.dst = output->data; out.size = SIZE_EXTERN_OUTPUT_BLOCK; out.pos = 0;
+    }
+    if (in.pos == in.size && input != NULL) {
+      /* Move to next input block and free current input block */
+      struct output_block * next = input->next;
+      caml_stat_free(input);
+      input = next;
+      if (input != NULL) {
+        in.src = input->data; in.size = input->end - input->data;
+      } else {
+        in.src = NULL; in.size = 0;
+      }
+      in.pos = 0;
+    }
+    rc = ZSTD_compressStream2(ctx, &out, &in,
+                              input == NULL ? ZSTD_e_end : ZSTD_e_continue);
+  } while (! (input == NULL && rc == 0));
+  /* Finish last block */
+  output->end = output->data + out.pos;
+  output_len += out.pos;
+  /* Return results */
+  *result = output_head;
+  *result_len = output_len;
+  ZSTD_freeCCtx(ctx);
+  return;
+oom3:
+  /* Free the remaining input */
+  for (struct output_block * blk = input; blk != NULL; /*nothing*/) {
+    struct output_block * next = blk->next;
+    caml_stat_free(blk);
+    blk = next;
+  }
+  /* Free the output allocated so far */
+  for (struct output_block * blk = output_head; blk != NULL; /*nothing*/) {
+    struct output_block * next = blk->next;
+    caml_stat_free(blk);
+    blk = next;
+  }
+oom2:
+  ZSTD_freeCCtx(ctx);
+oom1:
+  caml_raise_out_of_memory();
+}
+
 value caml_compressed_marshal_to_channel(value vchan, value v, value flags)
 {
   CAMLparam3(vchan, v, flags);
   struct channel * chan = Channel(vchan);
   caml_channel_lock(chan);
-  /* Marshal the value to a malloc-ed block */
-  char * uncompressed;
-  intnat uncompressed_len;
-  caml_output_value_to_malloc(v, flags, &uncompressed, &uncompressed_len);
+  /* Marshal the value to a header and a list of blocks */
+  char header1[MAX_INTEXT_HEADER_SIZE];
+  int header1_len;
+  struct output_block * uncompressed;
+  uintnat uncompressed_len;
+  caml_output_value_to_blocks(v, flags, header1, &header1_len, &uncompressed, &uncompressed_len);
+  uncompressed_len += header_len;
   /* Compress the marshaled data */
-  uintnat max_compressed_len = ZSTD_compressBound(uncompressed_len);
-  char * compressed = malloc(max_compressed_len);
-  if (compressed == NULL) { free(uncompressed); caml_raise_out_of_memory(); }
-  size_t compressed_len =
-    ZSTD_compress(compressed, max_compressed_len,
-                  uncompressed, uncompressed_len,
-                  ZSTD_CLEVEL_DEFAULT);
-  free(uncompressed);
-  if (ZSTD_isError(compressed_len)) {
-    free(compressed);
-    caml_failwith("Compression.Marshal.to_channel: compression error");
+  struct output_block * compressed;
+  uintnat compressed_len;
+  compress_blocks(header, header_len, uncompressed, &compressed, &compressed_len);
+  /* Write our header and the compressed marshaled data */
+  char header2[MAX_HEADER_SIZE];
+  int header2_len = storeheader(header2, compressed_len, uncompressed_len);
+  caml_really_putblock(chan, header2, header2_len);
+  for (struct output_block * blk = compressed; blk != NULL; /*nothing*/) {
+    caml_really_putblock(chan, blk->data, blk->end - blk->data);
+    struct output_block * nextblk = blk->next;
+    caml_stat_free(blk);
+    blk = nextblk;
   }
-  /* Write header and compressed marshaled data */
-  char header[MAX_HEADER_SIZE];
-  int header_len = storeheader(header, compressed_len, uncompressed_len);
-  caml_really_putblock(chan, header, header_len);
-  caml_really_putblock(chan, compressed, compressed_len);
-  free(compressed);
   caml_flush_if_unbuffered(chan);
   caml_channel_unlock(chan);
   CAMLreturn(Val_unit);
