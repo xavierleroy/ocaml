@@ -82,12 +82,6 @@ struct position_table {
 #define POS_TABLE_INIT_SIZE_LOG2 8
 #define POS_TABLE_INIT_SIZE (1 << POS_TABLE_INIT_SIZE_LOG2)
 
-struct output_block {
-  struct output_block * next;
-  char * end;
-  char data[SIZE_EXTERN_OUTPUT_BLOCK];
-};
-
 struct caml_extern_state {
 
   int extern_flags;        /* logical or of some of the flags */
@@ -1073,6 +1067,18 @@ CAMLexport void caml_output_value_to_malloc(value v, value flags,
     nextblk = blk->next;
     caml_stat_free(blk);
   }
+}
+
+void caml_output_value_to_blocks(value v, value flags,
+                                 /*out*/ char header[MAX_INTEXT_HEADER_SIZE],
+                                 /*out*/ int * header_len,
+                                 /*out*/ struct output_block ** data,
+                                 /*out*/ uintnat * data_len)
+{
+  struct caml_extern_state *s = get_extern_state ();
+  init_extern_output(s);
+  *data_len = extern_value(s, v, flags, header, header_len);
+  *data = s->extern_output_first;
 }
 
 /* Functions for writing user-defined marshallers */
