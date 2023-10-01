@@ -90,11 +90,15 @@ value caml_compressed_marshal_to_channel(value vchan, value v, value flags)
   uintnat max_compressed_len = ZSTD_compressBound(uncompressed_len);
   char * compressed = malloc(max_compressed_len);
   if (compressed == NULL) { free(uncompressed); caml_raise_out_of_memory(); }
-  intnat compressed_len =
+  size_t compressed_len =
     ZSTD_compress(compressed, max_compressed_len,
                   uncompressed, uncompressed_len,
                   ZSTD_CLEVEL_DEFAULT);
   free(uncompressed);
+  if (ZSTD_isError(compressed_len)) {
+    free(compressed);
+    caml_failwith("Compression.Marshal.to_channel: compression error");
+  }
   /* Write header and compressed marshaled data */
   char header[MAX_HEADER_SIZE];
   int header_len = storeheader(header, compressed_len, uncompressed_len);
@@ -154,31 +158,47 @@ value caml_compressed_marshal_from_channel(value vchan)
   r = readheader(header, &compressed_len, &uncompressed_len);
   if (r == -1) caml_failwith("too big for a 32-bit machine");
   CAMLassert (r == header_len);
-  /* Read the compressed data */
-  char * compressed = malloc(compressed_len);
-  if (compressed == NULL) goto oom1;
-  if (caml_really_getblock(chan, compressed, compressed_len) != compressed_len)
-    goto truncated2;
-  /* Uncompress */
+  /* Read the compressed data and decompress on the fly */
   char * uncompressed = malloc(uncompressed_len);
-  if (uncompressed == NULL) goto oom2;
-  size_t actual_len = ZSTD_decompress(uncompressed, uncompressed_len,
-                                      compressed, compressed_len);
-  free(compressed);
-  if (actual_len != uncompressed_len) {
-    free(uncompressed); caml_failwith("decompression error");
+  if (uncompressed == NULL) goto oom1;
+  ZSTD_DStream * ctx = ZSTD_createDStream();
+  if (ctx == NULL) goto oom2;
+  ZSTD_outBuffer out;
+  out.dst = uncompressed; out.size = uncompressed_len; out.pos = 0;
+  ZSTD_inBuffer in;
+  char buf[IO_BUFFER_SIZE];
+  in.src = buf;
+  uintnat remaining = compressed_len;
+  while (remaining > 0) {
+    int nread =
+      caml_getblock(chan, buf,
+                    remaining < IO_BUFFER_SIZE ? remaining : IO_BUFFER_SIZE);
+    if (nread == 0) goto truncated2;
+    remaining -= nread;
+    in.size = nread; in.pos = 0;
+    do {
+      size_t rc = ZSTD_decompressStream(ctx, &out, &in);
+      if (ZSTD_isError(rc)) goto zstd_error;
+    } while (in.pos < in.size);
   }
+  if (out.pos < out.size) goto zstd_error;
+  ZSTD_freeDStream(ctx);
   /* Unmarshal the uncompressed data */
   value v = caml_input_value_from_malloc(uncompressed, 0);
   /* uncompressed is freed by caml_input_value_from_malloc */
   caml_channel_unlock(chan);
   CAMLreturn(v);
+ zstd_error:
+  ZSTD_freeDStream(ctx);
+  free(uncompressed);
+  caml_failwith("Compression.Marshal.from_channel: decompression error");
  truncated2:
-  free(compressed);
+  ZSTD_freeDStream(ctx);
+  free(uncompressed);
  truncated1:
-  caml_failwith("truncated file");
+  caml_failwith("Compression.Marshal.from_channel: truncated file");
  oom2:
-  free(compressed);
+  free(uncompressed);
  oom1:
   caml_raise_out_of_memory();
 }
@@ -189,12 +209,12 @@ value caml_compression_supported(value vunit) { return Val_false; }
 
 value caml_compressed_marshal_to_channel(value vchan, value v, value flags)
 {
-  caml_invalid_argument("Compressed.Marshal.to_channel: unsupported");
+  caml_invalid_argument("Compression.Marshal.to_channel: unsupported");
 }
 
 value caml_compressed_marshal_from_channel(value vchan)
 {
-  caml_invalid_argument("Compressed.Marshal.from_channel: unsupported");
+  caml_invalid_argument("Compression.Marshal.from_channel: unsupported");
 }
 
 #endif
