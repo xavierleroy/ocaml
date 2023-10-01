@@ -100,14 +100,29 @@
 #define ENTRIES_PER_TRAIL_BLOCK  1025
 #define SIZE_EXTERN_OUTPUT_BLOCK 8100
 
-void caml_free_extern_state (void);
+struct output_block {
+  struct output_block * next;
+  char * end;
+  char data[SIZE_EXTERN_OUTPUT_BLOCK];
+};
 
-/* The entry points */
+/* The internal entry points */
+
+void caml_free_extern_state (void);
 
 void caml_output_val (struct channel * chan, value v, value flags);
   /* Output [v] with flags [flags] on the channel [chan]. */
 
 void caml_free_intern_state (void);
+
+value caml_input_val (struct channel * chan);
+  /* Read a structured value from the channel [chan]. */
+
+void caml_output_value_to_blocks(value v, value flags,
+                                 /*out*/ char header[MAX_INTEXT_HEADER_SIZE],
+                                 /*out*/ int * header_len,
+                                 /*out*/ struct output_block ** data,
+                                 /*out*/ uintnat * data_len);
 
 #endif /* CAML_INTERNALS */
 
@@ -127,11 +142,6 @@ CAMLextern intnat caml_output_value_to_block(value v, value flags,
      [data] points to the start of this buffer, and [len] is its size
      in bytes.  Return the number of bytes actually written in buffer.
      Raise [Failure] if buffer is too short. */
-
-#ifdef CAML_INTERNALS
-value caml_input_val (struct channel * chan);
-  /* Read a structured value from the channel [chan]. */
-#endif /* CAML_INTERNALS */
 
 CAMLextern value caml_input_val_from_string (value str, intnat ofs);
   /* Read a structured value from the OCaml string [str], starting
