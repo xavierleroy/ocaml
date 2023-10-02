@@ -699,7 +699,9 @@ runtime_BYTECODE_ONLY_C_SOURCES = \
   fail_byt \
   fix_code \
   interp \
-  startup_byt
+  startup_byt \
+  zstd
+
 runtime_BYTECODE_C_SOURCES = \
   $(runtime_COMMON_C_SOURCES:%=runtime/%.c) \
   $(runtime_BYTECODE_ONLY_C_SOURCES:%=runtime/%.c)
