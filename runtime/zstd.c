@@ -171,12 +171,14 @@ CAMLprim value caml_compressed_marshal_to_channel(value vchan,
   int header_len;
   struct output_block * uncompressed;
   uintnat uncompressed_len;
-  caml_output_value_to_blocks(v, flags, header, &header_len, &uncompressed, &uncompressed_len);
+  caml_output_value_to_blocks(v, flags, header, &header_len,
+                              &uncompressed, &uncompressed_len);
   uncompressed_len += header_len;
   /* Compress the marshaled data */
   struct output_block * compressed;
   uintnat compressed_len;
-  compress_blocks(header, header_len, uncompressed, &compressed, &compressed_len);
+  compress_blocks(header, header_len, uncompressed,
+                  &compressed, &compressed_len);
   /* Write our header and the compressed marshaled data */
   caml_putword(chan, Intext_magic_number_compressed);
   putvlq(chan, compressed_len);
@@ -192,15 +194,20 @@ CAMLprim value caml_compressed_marshal_to_channel(value vchan,
   CAMLreturn(Val_unit);
 }
 
-CAMLprim value caml_compressed_marshal_from_channel(value vchan)
+static value caml_input_compressed_val(struct channel * chan)
 {
-  CAMLparam1(vchan);
-  struct channel * chan = Channel(vchan);
-  caml_channel_lock(chan);
   /* Read the header */
   uint32_t magic = caml_getword(chan);
-  if (magic != Intext_magic_number_compressed)
+  if (magic != Intext_magic_number_compressed) {
+#if 0
     caml_failwith("Compression.Marshal.from_channel: bad object");
+#else
+    /* Assume data is not compressed and retry.
+       Works only if [chan] is open on a file. */
+    caml_seek_in(chan, caml_pos_in(chan) - 4);
+    return caml_input_val(chan);
+#endif
+  }
   uintnat compressed_len, uncompressed_len;
   if (getvlq(chan, &compressed_len) == -1
       || getvlq(chan, &uncompressed_len) == -1)
@@ -234,8 +241,7 @@ CAMLprim value caml_compressed_marshal_from_channel(value vchan)
   /* Unmarshal the uncompressed data */
   value v = caml_input_value_from_malloc(uncompressed, 0);
   /* uncompressed is freed by caml_input_value_from_malloc */
-  caml_channel_unlock(chan);
-  CAMLreturn(v);
+  return v;
  zstd_error:
   ZSTD_freeDStream(ctx);
   free(uncompressed);
@@ -259,9 +265,19 @@ value caml_compressed_marshal_to_channel(value vchan, value v, value flags)
   caml_invalid_argument("Compression.Marshal.to_channel: unsupported");
 }
 
-value caml_compressed_marshal_from_channel(value vchan)
+value caml_input_compressed_val(struct channel * chan)
 {
-  caml_invalid_argument("Compression.Marshal.from_channel: unsupported");
+  return caml_input_val(chan);
 }
 
 #endif
+
+CAMLprim value caml_compressed_marshal_from_channel(value vchan)
+{
+  CAMLparam1(vchan);
+  struct channel * chan = Channel(vchan);
+  caml_channel_lock(chan);
+  value v = caml_input_compressed_val(chan);
+  caml_channel_unlock(chan);
+  CAMLreturn(v);
+}
