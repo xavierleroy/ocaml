@@ -435,8 +435,9 @@ let to_file outchan artifact_info ~required_globals code =
           (Filename.dirname (Location.absolute_path filename))
         !debug_dirs;
       let p = pos_out outchan in
-      Marshal.(to_channel outchan !events []);
-      Marshal.(to_channel outchan (String.Set.elements !debug_dirs) []);
+      Compression.Marshal.to_channel outchan !events [];
+      Compression.Marshal.to_channel outchan
+                                     (String.Set.elements !debug_dirs) [];
       (p, pos_out outchan - p)
     end else
       (0, 0) in
