@@ -173,7 +173,7 @@ CPPFLAGS=@CPPFLAGS@
 OCAMLC_CFLAGS=@ocamlc_cflags@
 
 OCAMLC_CPPFLAGS=@ocamlc_cppflags@
-BYTECCLIBS=@cclibs@
+BYTECCLIBS=@bytecclibs@ @cclibs@
 EXE=@exeext@
 OUTPUTEXE=@outputexe@$(EMPTY)
 SUPPORTS_SHARED_LIBRARIES=@supports_shared_libraries@
