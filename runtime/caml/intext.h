@@ -29,6 +29,7 @@
 #define Intext_magic_number_small 0x8495A6BE
 #define Intext_magic_number_big 0x8495A6BF
 /* 0x8495A6BD was used in OCaml 5.1 for compressed marshaling; do not reuse. */
+#define Intext_magic_number_compressed 0x8495A6BC
 
 /* Header format for the "small" model: 20 bytes
        0   "small" magic number
