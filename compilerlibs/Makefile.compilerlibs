@@ -436,8 +436,11 @@ compilerlibs/ocamlcommon.cma: $(COMMON_CMI) $(ALL_CONFIG_CMO) $(COMMON)
 partialclean::
 	rm -f compilerlibs/ocamlcommon.cma
 
+# TODO: we're trying to autolink -lzstd every time ocamlcommon.cmxa is used.
+# TODO: find best way to do so.
 compilerlibs/ocamlcommon.cmxa: $(COMMON_CMI) $(COMMON:.cmo=.cmx)
-	$(V_LINKOPT)$(CAMLOPT) -a -linkall -o $@ $(COMMON:.cmo=.cmx)
+	$(V_LINKOPT)$(CAMLOPT) -a -linkall -o $@ \
+                $(addprefix -cclib ,$(BYTECCLIBS)) $(COMMON:.cmo=.cmx)
 partialclean::
 	rm -f compilerlibs/ocamlcommon.cmxa \
 	      compilerlibs/ocamlcommon.a compilerlibs/ocamlcommon.lib

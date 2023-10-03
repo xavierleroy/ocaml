@@ -692,15 +692,15 @@ runtime_COMMON_C_SOURCES = \
   sys \
   $(TSAN_NATIVE_RUNTIME_C_SOURCES) \
   $(UNIX_OR_WIN32) \
-  weak
+  weak \
+  zstd
 
 runtime_BYTECODE_ONLY_C_SOURCES = \
   backtrace_byt \
   fail_byt \
   fix_code \
   interp \
-  startup_byt \
-  zstd
+  startup_byt
 
 runtime_BYTECODE_C_SOURCES = \
   $(runtime_COMMON_C_SOURCES:%=runtime/%.c) \
