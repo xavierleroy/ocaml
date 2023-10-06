@@ -33,8 +33,8 @@
 #include "caml/mlvalues.h"
 #include "caml/reverse.h"
 #include "caml/shared_heap.h"
-#ifdef HAS_ZSTD
-#include <zstd.h>
+#ifdef HAS_LZ4
+#include <lz4.h>
 #endif
 
 /* Flags affecting marshaling */
@@ -89,7 +89,7 @@ struct position_table {
 struct output_block {
   struct output_block * next;
   char * end;
-  char data[SIZE_EXTERN_OUTPUT_BLOCK];
+  char data[];
 };
 
 struct caml_extern_state {
@@ -369,7 +369,9 @@ static void extern_record_location(struct caml_extern_state* s,
 static void init_extern_output(struct caml_extern_state* s)
 {
   s->extern_userprovided_output = NULL;
-  s->extern_output_first = caml_stat_alloc_noexc(sizeof(struct output_block));
+  s->extern_output_first =
+    caml_stat_alloc_noexc(sizeof(struct output_block)
+                          + SIZE_EXTERN_OUTPUT_BLOCK);
   if (s->extern_output_first == NULL) caml_raise_out_of_memory();
   s->extern_output_block = s->extern_output_first;
   s->extern_output_block->next = NULL;
@@ -412,7 +414,9 @@ static void grow_extern_output(struct caml_extern_state *s, intnat required)
     extra = 0;
   else
     extra = required;
-  blk = caml_stat_alloc_noexc(sizeof(struct output_block) + extra);
+  blk = caml_stat_alloc_noexc(sizeof(struct output_block)
+                              + SIZE_EXTERN_OUTPUT_BLOCK
+                              + extra);
   if (blk == NULL) extern_out_of_memory(s);
   s->extern_output_block->next = blk;
   s->extern_output_block = blk;
@@ -481,16 +485,19 @@ Caml_inline void store64(char * dst, int64_t n)
   dst[4] = n >> 24;  dst[5] = n >> 16;  dst[6] = n >> 8;   dst[7] = n;
 }
 
-#ifdef HAS_ZSTD
-static int storevlq(char * dst, uintnat n)
+#ifdef HAS_LZ4
+static int storevlq(char * dst, uintnat n, int mindigits)
 {
   /* Find number of base-128 digits (always at least one) */
   int ndigits = 1;
   for (uintnat m = n >> 7; m != 0; m >>= 7) ndigits++;
+  if (ndigits < mindigits) ndigits = mindigits;
   /* Convert number */
-  dst += ndigits - 1;
-  *dst = n & 0x7F;
-  for (n >>= 7; n != 0; n >>= 7) *--dst = 0x80 | (n & 0x7F);
+  dst[ndigits - 1] = n & 0x7F;
+  for (int i = ndigits - 2; i >= 0; i--) {
+    n >>= 7;
+    dst[i] = 0x80 | (n & 0x7F);
+  }
   /* Return length of number */
   return ndigits;
 }
@@ -918,67 +925,81 @@ static void extern_rec(struct caml_extern_state* s, value v)
 
 /* Compress the output */
 
-#ifdef HAS_ZSTD
+#ifdef HAS_LZ4
 
 static void extern_compress_output(struct caml_extern_state* s)
 {
-  ZSTD_CCtx * ctx;
-  ZSTD_inBuffer in;
-  ZSTD_outBuffer out;
-  struct output_block * input, * output, * output_head;
-  int rc;
-
-  ctx = ZSTD_createCCtx();
-  if (ctx == NULL) extern_out_of_memory(s);
-  input = s->extern_output_first;
-  output_head = caml_stat_alloc_noexc(sizeof(struct output_block));
-  if (output_head == NULL) goto oom1;
-  output = output_head;
-  output->next = NULL;
-  in.src = input->data; in.size = input->end - input->data; in.pos = 0;
-  out.dst = output->data; out.size = SIZE_EXTERN_OUTPUT_BLOCK; out.pos = 0;
+  LZ4_stream_t * str = LZ4_createStream();
+  if (str == NULL) extern_out_of_memory(s);
+  /* To use the streaming compression API of LZ4, we need
+     - a double input buffer, holding the current block and the previous block
+     - a single output buffer, holding the compressed current block.
+     We use 2 bytes to store the lengths of compressed blocks,
+     hence we size input blocks so that the max compressed size is <= 0xFFFF. */
+#define INBUF_SIZE 0xFEF0
+#define OUTBUF_SIZE 0xFFFF
+  _Static_assert(LZ4_COMPRESSBOUND(INBUF_SIZE) <= OUTBUF_SIZE);
+  _Static_assert(OUTBUF_SIZE <= 0xFFFF);
+  /* The two input buffers must be separated by at least 1 byte... */
+  char inbuf1[INBUF_SIZE + 1], inbuf2[INBUF_SIZE + 1], outbuf[OUTBUF_SIZE];
+  char * inbuf = inbuf1;
+  struct output_block * input = s->extern_output_first;
+  char * input_cur = input->data;
+  struct output_block * output_head = NULL;
+  struct output_block ** output_prev = &output_head;
   do {
-    if (out.pos == out.size) {
-      output->end = output->data + out.pos;
-      /* Allocate fresh output block */
-      struct output_block * next =
-        caml_stat_alloc_noexc(sizeof(struct output_block));
-      if (next == NULL) goto oom2;
-      output->next = next;
-      output = next;
-      output->next = NULL;
-      out.dst = output->data; out.size = SIZE_EXTERN_OUTPUT_BLOCK; out.pos = 0;
-    }
-    if (in.pos == in.size && input != NULL) {
-      /* Move to next input block and free current input block */
-      struct output_block * next = input->next;
-      caml_stat_free(input);
-      input = next;
-      if (input != NULL) {
-        in.src = input->data; in.size = input->end - input->data;
+    int insize = 0;
+    /* Fill the input buffer */
+    while (insize < INBUF_SIZE && input != NULL) {
+      int avail_in = input->end - input_cur;
+      int avail_out = INBUF_SIZE - insize;
+      if (avail_in <= avail_out) {
+        memcpy(inbuf + insize, input_cur, avail_in);
+        insize += avail_in;
+        struct output_block * next = input->next;
+        caml_stat_free(input);
+        input = next;
+        input_cur = input->data;
       } else {
-        in.src = NULL; in.size = 0;
+        memcpy(inbuf + insize, input_cur, avail_out);
+        insize += avail_out;
+        input_cur += avail_out;
+        break; /* inbuf is full */
       }
-      in.pos = 0;
     }
-    rc = ZSTD_compressStream2(ctx, &out, &in,
-                              input == NULL ? ZSTD_e_end : ZSTD_e_continue);
-  } while (! (input == NULL && rc == 0));
-  output->end = output->data + out.pos;
+    /* Compress the input buffer to the output buffer */
+    int osize =
+      LZ4_compress_fast_continue(str, inbuf, outbuf, insize, OUTBUF_SIZE, 0);
+    CAMLassert (osize != 0);
+    /* Copy compressed output to a new block, prefixed with compressed size */
+    struct output_block * output =
+      caml_stat_alloc_noexc(sizeof(struct output_block) + 2 + osize);
+    if (output == NULL) goto oom;
+    output->next = NULL;
+    output->end = output->data + 2 + osize;
+    output->data[0] = (osize >> 8) & 0xFF;
+    output->data[1] = osize & 0xFF;
+    memcpy(output->data + 2, outbuf, osize);
+    /* Link output block */
+    *output_prev = output;
+    output_prev = &(output->next);
+    /* Switch to the other input buffer */
+    inbuf = (inbuf == inbuf1 ? inbuf2 : inbuf1);
+  } while (input != NULL);
+  /* Replace output blocks by the compressed blocks */
   s->extern_output_first = output_head;
-  ZSTD_freeCCtx(ctx);
+  LZ4_freeStream(str);
   return;
-oom2:
+oom:
   /* The old output blocks that remain to be freed */
   s->extern_output_first = input;
   /* Free the new output blocks */
-  for (output = output_head; output != NULL; ) {
+  for (struct output_block * output = output_head; output != NULL; ) {
     struct output_block * next = output->next;
     caml_stat_free(output);
     output = next;
   }
-oom1:
-  ZSTD_freeCCtx(ctx);
+  LZ4_freeStream(str);
   extern_out_of_memory(s);
 }
 
@@ -997,7 +1018,7 @@ static intnat extern_value(struct caml_extern_state* s, value v, value flags,
   s->extern_flags = caml_convert_flag_list(flags, extern_flag_values);
   /* Turn compression off if Zlib missing or if called from
      caml_output_value_to_block */
-#ifdef HAS_ZSTD
+#ifdef HAS_LZ4
   if (s->extern_userprovided_output) s->extern_flags &= ~COMPRESSED;
 #else
   s->extern_flags &= ~COMPRESSED;
@@ -1011,7 +1032,7 @@ static intnat extern_value(struct caml_extern_state* s, value v, value flags,
   /* Record end of output */
   close_extern_output(s);
   /* Compress if requested */
-#ifdef HAS_ZSTD
+#ifdef HAS_LZ4
   if (s->extern_flags & COMPRESSED) {
     uintnat uncompressed_len = extern_output_length(s);
     extern_compress_output(s);
@@ -1031,11 +1052,11 @@ static intnat extern_value(struct caml_extern_state* s, value v, value flags,
     /* Write the header in compressed format */
     store32(header, Intext_magic_number_compressed);
     int pos = 5, len;
-    len = storevlq(header + pos, res_len); pos += len;
-    len = storevlq(header + pos, uncompressed_len); pos += len;
-    len = storevlq(header + pos, s->obj_counter); pos += len;
-    len = storevlq(header + pos, s->size_32); pos += len;
-    len = storevlq(header + pos, s->size_64); pos += len;
+    len = storevlq(header + pos, res_len, 2); pos += len;
+    len = storevlq(header + pos, uncompressed_len, 2); pos += len;
+    len = storevlq(header + pos, s->obj_counter, 1); pos += len;
+    len = storevlq(header + pos, s->size_32, 1); pos += len;
+    len = storevlq(header + pos, s->size_64, 1); pos += len;
     header[4] = pos;
     *header_len = pos;
     return res_len;

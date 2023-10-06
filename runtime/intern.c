@@ -37,8 +37,8 @@
 #include "caml/reverse.h"
 #include "caml/shared_heap.h"
 #include "caml/signals.h"
-#ifdef HAS_ZSTD
-#include <zstd.h>
+#ifdef HAS_LZ4
+#include <lz4.h>
 #endif
 
 /* Item on the stack with defined operation */
@@ -796,22 +796,43 @@ static void intern_decompress_input(struct caml_intern_state * s,
 {
   s->compressed = h->compressed;
   if (! h->compressed) return;
-#ifdef HAS_ZSTD
-  unsigned char * blk = malloc(h->uncompressed_data_len);
-  if (blk == NULL) {
-    intern_cleanup(s);
-    caml_raise_out_of_memory();
+#ifdef HAS_LZ4
+  LZ4_streamDecode_t * str = LZ4_createStreamDecode();
+  if (str == NULL) goto oom1;
+  uintnat src_len = h->data_len;
+  const unsigned char * src = s->intern_src;
+  uintnat dst_len = h->uncompressed_data_len;
+  unsigned char * dst = malloc(dst_len);
+  if (dst == NULL) goto oom2;
+  uintnat src_pos = 0, dst_pos = 0;
+  while (src_pos + 2 <= src_len) {
+    int isize = (src[src_pos] << 8) | src[src_pos + 1];
+    src_pos += 2;
+    int osize =
+      LZ4_decompress_safe_continue(str,
+                                   (const char *) (src + src_pos),
+                                   (char *) (dst + dst_pos),
+                                   isize, dst_len - dst_pos);
+    if (osize <= 0) goto error;
+    src_pos += isize;
+    dst_pos += osize;
   }
-  size_t res =
-    ZSTD_decompress(blk, h->uncompressed_data_len, s->intern_src, h->data_len);
-  if (res != h->uncompressed_data_len) {
-    free(blk);
-    intern_cleanup(s);
-    intern_failwith2(fun_name, "decompression error");
-  }
+  if (src_pos != src_len || dst_pos != dst_len) goto error;
+  LZ4_freeStreamDecode(str);
+  /* Replace input by result of decompression */
   if (s->intern_input != NULL) free(s->intern_input);
-  s->intern_input = blk;  /* to be freed at end of demarshaling */
-  s->intern_src = blk;
+  s->intern_input = dst;  /* to be freed at end of demarshaling */
+  s->intern_src = dst;
+  return;
+error:
+  free(dst); LZ4_freeStreamDecode(str);
+  intern_cleanup(s);
+  intern_failwith2(fun_name, "decompression error");
+oom2:
+  LZ4_freeStreamDecode(str);
+oom1:
+  intern_cleanup(s);
+  caml_raise_out_of_memory();
 #else
   intern_cleanup(s);
   intern_failwith2(fun_name, "compressed object, cannot decompress");
@@ -971,7 +992,7 @@ CAMLexport value caml_input_value_from_block(const char * data, intnat len)
    - for the "big" model: the length is at positions 8 to 15
    - for the "compressed" model: the length is at positions 5 to at most 14
    16 bytes is not too much because the smallest marshalled object
-   is 20 bytes long (a small integer in the "compressed" model),
+   is 16 bytes long (a small integer in the "compressed" model),
    so we're not reading past the end of the data.
  */
 

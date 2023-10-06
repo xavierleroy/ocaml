@@ -986,7 +986,7 @@ enable_function_sections
 enable_mmap_map_stack
 with_afl
 with_flexdll
-with_zstd
+with_lz4
 enable_shared
 enable_static
 with_pic
@@ -1693,7 +1693,7 @@ Optional Packages:
   --with-target-bindir    location of binary programs on target system
   --with-afl              use the AFL fuzzer
   --with-flexdll          bootstrap FlexDLL from the given sources
-  --without-zstd          disable compression of marshaled data
+  --without-lz4           disable compression of marshaled data
   --with-pic[=PKGS]       try to use only PIC/non-PIC objects [default=use
                           both]
   --with-aix-soname=aix|svr4|both
@@ -3981,10 +3981,10 @@ fi
 
 
 
-# Check whether --with-zstd was given.
-if test ${with_zstd+y}
+# Check whether --with-lz4 was given.
+if test ${with_lz4+y}
 then :
-  withval=$with_zstd;
+  withval=$with_lz4;
 fi
 
 
@@ -18451,100 +18451,87 @@ else
 fi
 
 
-## ZSTD compression library
+## LZ4 compression library
 
-zstd_status=""
-if test x"$with_zstd" != "xno"
+lz4_status=""
+if test x"$with_lz4" != "xno"
 then :
   # Try pkg-config first, as it gives the most reliable results
-  if ${PKG_CONFIG} libzstd 2>/dev/null
+  if ${PKG_CONFIG} liblz4 2>/dev/null
 then :
-  # Now check the version
-    if ${PKG_CONFIG} --atleast-version 1.4 libzstd
-then :
-  zstd_libs=`${PKG_CONFIG} --libs libzstd`
-       zstd_flags=`${PKG_CONFIG} --cflags libzstd`
-       zstd_status="ok"
+  lz4_libs=`${PKG_CONFIG} --libs liblz4`
+       lz4_flags=`${PKG_CONFIG} --cflags liblz4`
+       lz4_status="ok"
 else $as_nop
-  zstd_status="zstd library too old: version 1.4 or later is needed"
-fi
-else $as_nop
-  # Otherwise, try to find zstd the old way,
+  # Otherwise, try to find lz4 the old way,
   # assuming it is installed in default places
-    { printf "%s\n" "$as_me:${as_lineno-$LINENO}: checking for ZSTD_createCCtx in -lzstd" >&5
-printf %s "checking for ZSTD_createCCtx in -lzstd... " >&6; }
-if test ${ac_cv_lib_zstd_ZSTD_createCCtx+y}
+    { printf "%s\n" "$as_me:${as_lineno-$LINENO}: checking for LZ4_createStream in -llz4" >&5
+printf %s "checking for LZ4_createStream in -llz4... " >&6; }
+if test ${ac_cv_lib_lz4_LZ4_createStream+y}
 then :
   printf %s "(cached) " >&6
 else $as_nop
   ac_check_lib_save_LIBS=$LIBS
-LIBS="-lzstd  $LIBS"
+LIBS="-llz4  $LIBS"
 cat confdefs.h - <<_ACEOF >conftest.$ac_ext
 /* end confdefs.h.  */
 
 /* Override any GCC internal prototype to avoid an error.
    Use char because int might match the return type of a GCC
    builtin and then its argument prototype would still apply.  */
-char ZSTD_createCCtx ();
+char LZ4_createStream ();
 int
 main (void)
 {
-return ZSTD_createCCtx ();
+return LZ4_createStream ();
   ;
   return 0;
 }
 _ACEOF
 if ac_fn_c_try_link "$LINENO"
 then :
-  ac_cv_lib_zstd_ZSTD_createCCtx=yes
+  ac_cv_lib_lz4_LZ4_createStream=yes
 else $as_nop
-  ac_cv_lib_zstd_ZSTD_createCCtx=no
+  ac_cv_lib_lz4_LZ4_createStream=no
 fi
 rm -f core conftest.err conftest.$ac_objext conftest.beam \
     conftest$ac_exeext conftest.$ac_ext
 LIBS=$ac_check_lib_save_LIBS
 fi
-{ printf "%s\n" "$as_me:${as_lineno-$LINENO}: result: $ac_cv_lib_zstd_ZSTD_createCCtx" >&5
-printf "%s\n" "$ac_cv_lib_zstd_ZSTD_createCCtx" >&6; }
-if test "x$ac_cv_lib_zstd_ZSTD_createCCtx" = xyes
+{ printf "%s\n" "$as_me:${as_lineno-$LINENO}: result: $ac_cv_lib_lz4_LZ4_createStream" >&5
+printf "%s\n" "$ac_cv_lib_lz4_LZ4_createStream" >&6; }
+if test "x$ac_cv_lib_lz4_LZ4_createStream" = xyes
 then :
-  ac_fn_check_decl "$LINENO" "ZSTD_compressStream2" "ac_cv_have_decl_ZSTD_compressStream2" "#include <zstd.h>
-" "$ac_c_undeclared_builtin_options" "CFLAGS"
-if test "x$ac_cv_have_decl_ZSTD_compressStream2" = xyes
-then :
-  zstd_libs="-lzstd"
-         zstd_flags=""
-         zstd_status="ok"
+  lz4_libs="-llz4"
+         lz4_flags=""
+         lz4_status="ok"
 else $as_nop
-  zstd_status="zstd library too old: version 1.4 or later is needed"
-fi
-else $as_nop
-  zstd_status="zstd library not found"
+  lz4_status="lz4 library not found"
 fi
 
 fi
-fi
 
-if test x"$zstd_status" = "xok"
+if test x"$lz4_status" = "xok"
 then :
   { printf "%s\n" "$as_me:${as_lineno-$LINENO}: compressed marshaling supported" >&5
 printf "%s\n" "$as_me: compressed marshaling supported" >&6;}
-   cclibs="$cclibs $zstd_libs"
-   internal_cppflags="$internal_cppflags $zstd_flags"
-   printf "%s\n" "#define HAS_ZSTD 1" >>confdefs.h
+   cclibs="$cclibs $lz4_libs"
+   internal_cppflags="$internal_cppflags $lz4_flags"
+   printf "%s\n" "#define HAS_LZ4 1" >>confdefs.h
 
 else $as_nop
-  case "$with_zstd" in #(
+  case "$with_lz4" in #(
   no) :
      ;; #(
   yes) :
-    as_fn_error $? "$zstd_status" "$LINENO" 5 ;; #(
+    as_fn_error $? "$lz4_status" "$LINENO" 5 ;; #(
   *) :
-    { printf "%s\n" "$as_me:${as_lineno-$LINENO}: WARNING: $zstd_status" >&5
-printf "%s\n" "$as_me: WARNING: $zstd_status" >&2;}
+    { printf "%s\n" "$as_me:${as_lineno-$LINENO}: WARNING: $lz4_status" >&5
+printf "%s\n" "$as_me: WARNING: $lz4_status" >&2;}
       { printf "%s\n" "$as_me:${as_lineno-$LINENO}: WARNING: compressed marshaling not supported" >&5
 printf "%s\n" "$as_me: WARNING: compressed marshaling not supported" >&2;} ;;
 esac
+fi
 fi
 
 ## Determine whether the debugger should/can be built

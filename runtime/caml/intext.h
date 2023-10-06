@@ -46,7 +46,7 @@
       24   size in words when read on a 64-bit platform
    The 3 numbers are 64 bits each, in big endian.
 
-  Header format for the "compressed" model: 10 to 55 bytes
+  Header format for the "compressed" model: 12 to 55 bytes
        0   "compressed" magic number
        4   low 6 bits: total size of the header
            high 2 bits: reserved, currently 0
@@ -57,6 +57,8 @@
            - number of shared blocks
            - size in words when read on a 32-bit platform
            - size in words when read on a 64-bit platform
+       use at least 2 bytes for the two lengths
+       so that the header is at least 12 bytes total.
 
   VLQ format is one or several bytes like 1xxxxxxx 1yyyyyyy 0zzzzzzz.
   First bytes have top bit 1, last byte has top bit 0.
