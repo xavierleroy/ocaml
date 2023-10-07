@@ -668,6 +668,7 @@ runtime_COMMON_C_SOURCES = \
   io \
   lexing \
   lf_skiplist \
+  lz4 \
   main \
   major_gc \
   md5 \

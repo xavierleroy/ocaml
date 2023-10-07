@@ -20,6 +20,7 @@
 /* The interface of this file is "caml/intext.h" */
 
 #include <string.h>
+#include "lz4.h"
 #include "caml/alloc.h"
 #include "caml/codefrag.h"
 #include "caml/config.h"
@@ -33,9 +34,6 @@
 #include "caml/mlvalues.h"
 #include "caml/reverse.h"
 #include "caml/shared_heap.h"
-#ifdef HAS_LZ4
-#include <lz4.h>
-#endif
 
 /* Flags affecting marshaling */
 
@@ -485,7 +483,6 @@ Caml_inline void store64(char * dst, int64_t n)
   dst[4] = n >> 24;  dst[5] = n >> 16;  dst[6] = n >> 8;   dst[7] = n;
 }
 
-#ifdef HAS_LZ4
 static int storevlq(char * dst, uintnat n, int mindigits)
 {
   /* Find number of base-128 digits (always at least one) */
@@ -501,7 +498,6 @@ static int storevlq(char * dst, uintnat n, int mindigits)
   /* Return length of number */
   return ndigits;
 }
-#endif
 
 /* Write characters, integers, and blocks in the output buffer */
 
@@ -925,8 +921,6 @@ static void extern_rec(struct caml_extern_state* s, value v)
 
 /* Compress the output */
 
-#ifdef HAS_LZ4
-
 static void extern_compress_output(struct caml_extern_state* s)
 {
   LZ4_stream_t * str = LZ4_createStream();
@@ -1003,8 +997,6 @@ oom:
   extern_out_of_memory(s);
 }
 
-#endif
-
 static const int extern_flag_values[] = {
   NO_SHARING, CLOSURES, COMPAT_32, COMPRESSED
 };
@@ -1016,13 +1008,8 @@ static intnat extern_value(struct caml_extern_state* s, value v, value flags,
   intnat res_len;
   /* Parse flag list */
   s->extern_flags = caml_convert_flag_list(flags, extern_flag_values);
-  /* Turn compression off if Zlib missing or if called from
-     caml_output_value_to_block */
-#ifdef HAS_LZ4
+  /* Turn compression off if called from caml_output_value_to_block */
   if (s->extern_userprovided_output) s->extern_flags &= ~COMPRESSED;
-#else
-  s->extern_flags &= ~COMPRESSED;
-#endif
   /* Initializations */
   s->obj_counter = 0;
   s->size_32 = 0;
@@ -1032,7 +1019,6 @@ static intnat extern_value(struct caml_extern_state* s, value v, value flags,
   /* Record end of output */
   close_extern_output(s);
   /* Compress if requested */
-#ifdef HAS_LZ4
   if (s->extern_flags & COMPRESSED) {
     uintnat uncompressed_len = extern_output_length(s);
     extern_compress_output(s);
@@ -1061,7 +1047,6 @@ static intnat extern_value(struct caml_extern_state* s, value v, value flags,
     *header_len = pos;
     return res_len;
   }
-#endif
   /* Write the header */
   res_len = extern_output_length(s);
 #ifdef ARCH_SIXTYFOUR

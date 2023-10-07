@@ -509,10 +509,6 @@ AC_ARG_WITH([flexdll],
     [bootstrap FlexDLL from the given sources])],
   [AS_IF([test x"$withval" = 'xyes'],[with_flexdll=flexdll])])
 
-AC_ARG_WITH([lz4],
-  [AS_HELP_STRING([--without-lz4],
-    [disable compression of marshaled data])])
-
 AS_IF([test x"$enable_unix_lib" = "xno"],
   [AS_IF([test x"$enable_ocamldebug" = "xyes"],
     [AC_MSG_ERROR([ocamldebug requires the unix library])],
@@ -2089,36 +2085,6 @@ AC_CHECK_FUNC([ffs], [AC_DEFINE([HAS_FFS])])
 AC_CHECK_FUNC([_BitScanForward], [AC_DEFINE([HAS_BITSCANFORWARD])])
 
 AC_PATH_TOOL([PKG_CONFIG], [pkg-config], [false])
-
-## LZ4 compression library
-
-lz4_status=""
-AS_IF([test x"$with_lz4" != "xno"],
-  # Try pkg-config first, as it gives the most reliable results
-  AS_IF([${PKG_CONFIG} liblz4 2>/dev/null],
-      [lz4_libs=`${PKG_CONFIG} --libs liblz4`
-       lz4_flags=`${PKG_CONFIG} --cflags liblz4`
-       lz4_status="ok"],
-  # Otherwise, try to find lz4 the old way,
-  # assuming it is installed in default places
-    [AC_CHECK_LIB([lz4], [LZ4_createStream],
-        [lz4_libs="-llz4"
-         lz4_flags=""
-         lz4_status="ok"],
-      [lz4_status="lz4 library not found"])])
-
-AS_IF([test x"$lz4_status" = "xok"],
-  [AC_MSG_NOTICE([compressed marshaling supported])
-   cclibs="$cclibs $lz4_libs"
-   internal_cppflags="$internal_cppflags $lz4_flags"
-   AC_DEFINE([HAS_LZ4])],
-  [AS_CASE(["$with_lz4"],
-     [no],
-       [],
-     [yes],
-       [AC_MSG_ERROR([$lz4_status])],
-     [AC_MSG_WARN([$lz4_status])
-      AC_MSG_WARN([compressed marshaling not supported])])]))
 
 ## Determine whether the debugger should/can be built
 

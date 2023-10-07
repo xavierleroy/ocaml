@@ -37,9 +37,7 @@
 #include "caml/reverse.h"
 #include "caml/shared_heap.h"
 #include "caml/signals.h"
-#ifdef HAS_LZ4
-#include <lz4.h>
-#endif
+#include "lz4.h"
 
 /* Item on the stack with defined operation */
 struct intern_item {
@@ -796,7 +794,6 @@ static void intern_decompress_input(struct caml_intern_state * s,
 {
   s->compressed = h->compressed;
   if (! h->compressed) return;
-#ifdef HAS_LZ4
   LZ4_streamDecode_t * str = LZ4_createStreamDecode();
   if (str == NULL) goto oom1;
   uintnat src_len = h->data_len;
@@ -805,10 +802,11 @@ static void intern_decompress_input(struct caml_intern_state * s,
   unsigned char * dst = malloc(dst_len);
   if (dst == NULL) goto oom2;
   uintnat src_pos = 0, dst_pos = 0;
+  int isize, osize;
   while (src_pos + 2 <= src_len) {
-    int isize = (src[src_pos] << 8) | src[src_pos + 1];
+    isize = (src[src_pos] << 8) | src[src_pos + 1];
     src_pos += 2;
-    int osize =
+    osize =
       LZ4_decompress_safe_continue(str,
                                    (const char *) (src + src_pos),
                                    (char *) (dst + dst_pos),
@@ -825,6 +823,7 @@ static void intern_decompress_input(struct caml_intern_state * s,
   s->intern_src = dst;
   return;
 error:
+  fprintf(stderr, "Decompression error: isize = %d, osize = %d, src_pos = %lu, src_len = %lu, dst_pos = %lu, dst_len = %lu\n", isize, osize, src_pos, src_len, dst_pos, dst_len);
   free(dst); LZ4_freeStreamDecode(str);
   intern_cleanup(s);
   intern_failwith2(fun_name, "decompression error");
@@ -833,10 +832,6 @@ oom2:
 oom1:
   intern_cleanup(s);
   caml_raise_out_of_memory();
-#else
-  intern_cleanup(s);
-  intern_failwith2(fun_name, "compressed object, cannot decompress");
-#endif
 }
 
 /* Reading from a channel */
