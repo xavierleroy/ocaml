@@ -17,7 +17,7 @@ type extern_flags =
     No_sharing
   | Closures
   | Compat_32
-  | Compression
+
 (* note: this type definition is used in 'runtime/debugger.c' *)
 
 external to_channel: out_channel -> 'a -> extern_flags list -> unit
@@ -67,8 +67,4 @@ let from_string buff ofs =
      sequence is never mutated *)
   from_bytes (Bytes.unsafe_of_string buff) ofs
 
-external zstd_initialize: unit -> bool = "caml_zstd_initialize"
-
-let compr_supp = zstd_initialize()
-
-let compression_supported () = compr_supp
+external compression_supported : unit -> bool = "caml_compression_available"
