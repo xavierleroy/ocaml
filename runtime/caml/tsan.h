@@ -57,7 +57,7 @@
 
 #ifdef CAML_INTERNALS
 
-#include "caml/mlvalues.h"
+#include "mlvalues.h"
 
 struct stack_info;
 
