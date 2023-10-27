@@ -73,7 +73,7 @@ module type HASH = sig
   val create : unit -> state
   val update : state -> string -> int -> int -> unit
   val final : state -> string
-  val unsafe_string : string -> int -> int -> string
+  val substring : string -> int -> int -> string
 end
 
 (* Generic construction, parameterized by a hash function *)
@@ -125,7 +125,7 @@ let add_channel st ic toread =
   end
 
 let string str =
-  H.unsafe_string str 0 (String.length str)
+  H.substring str 0 (String.length str)
 
 let bytes b =
   string (Bytes.unsafe_to_string b)
@@ -133,7 +133,7 @@ let bytes b =
 let substring str ofs len =
   if ofs < 0 || len < 0 || ofs > String.length str - len
   then invalid_arg "Digest.substring";
-  H.unsafe_string str ofs len
+  H.substring str ofs len
 
 let subbytes b ofs len =
   substring (Bytes.unsafe_to_string b) ofs len
@@ -176,17 +176,17 @@ module BLAKE2_hash (X: sig val hash_size : int val key : string end) : HASH =
     external final_gen : state -> int -> string = "caml_blake2_final"
     let final st = final_gen st X.hash_size
 
-    external unsafe_string_gen : int -> string -> string -> int -> int -> string
+    external substring_gen : int -> string -> string -> int -> int -> string
                           = "caml_blake2_string"
-    let unsafe_string s ofs len =
-      unsafe_string_gen X.hash_size X.key s ofs len
+    let substring s ofs len =
+      substring_gen X.hash_size X.key s ofs len
   end
 
-module BLAKE128 = 
+module BLAKE128 =
   Make(BLAKE2_hash(struct let hash_size = 16 let key = "" end))
-module BLAKE256 = 
+module BLAKE256 =
   Make(BLAKE2_hash(struct let hash_size = 32 let key = "" end))
-module BLAKE512 = 
+module BLAKE512 =
   Make(BLAKE2_hash(struct let hash_size = 64 let key = "" end))
 
 (* MD5 hashing *)
@@ -198,7 +198,7 @@ module MD5_hash : HASH =
     external create : unit -> state = "caml_md5_create"
     external update : state -> string -> int -> int -> unit = "caml_md5_update"
     external final : state -> string = "caml_md5_final"
-    external unsafe_string : string -> int -> int -> string = "caml_md5_string"
+    external substring : string -> int -> int -> string = "caml_md5_string"
 end
 
 module MD5 = Make(MD5_hash)
