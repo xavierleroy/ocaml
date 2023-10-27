@@ -144,10 +144,10 @@ module type S = sig
         is not [2 * hash_size], or if the arguments contains non-hexadecimal
         characters. *)
 
-(** {2 Rolling digests} *)
+(** {2 Incremental digests} *)
 
   type state
-    (** The state of a rolling digest.  It records all the data that
+    (** The state of an incremental digest.  It records all the data that
         has been added to it since it was created.  *)
 
   val create : unit -> state
@@ -156,32 +156,33 @@ module type S = sig
   val get_digest : state -> t
     (** [get_digest st] returns the digest of all the data that has
         been added to [st].
-        The rolling digest [st] should not be used afterwards. *)
+        The incremental digest [st] should not be used afterwards. *)
 
   val add_string : state -> string -> unit
-    (** [add_string st s] adds string [s] to the rolling digest [st]. *)
+    (** [add_string st s] adds string [s] to the incremental digest [st]. *)
 
   val add_bytes : state -> bytes -> unit
-    (** [add_bytes st b] adds byte sequence [b] to the rolling digest [st]. *)
+    (** [add_bytes st b] adds byte sequence [b] to the incremental
+        digest [st]. *)
 
   val add_substring : state -> string -> int -> int -> unit
     (** [add_substring st s ofs len] adds the substring
         of [s] starting at index [ofs] and containing [len] characters
-        to the rolling digest [st]. *)
+        to the incremental digest [st]. *)
 
   val add_subbytes : state -> bytes -> int -> int -> unit
     (** [add_subbytes st b ofs len] adds the subsequence
         of [b] starting at index [ofs] and containing [len] bytes
-        to the rolling digest [st]. *)
+        to the incremental digest [st]. *)
 
   val add_channel : state -> in_channel -> int -> unit
     (** If [len] is nonnegative, [add_channel st ic len] reads [len] bytes
-        from channel [ic] and adds them to the rolling digest [st].
+        from channel [ic] and adds them to the incremental digest [st].
         It raises [End_of_file] if end-of-file is reached before
         [len] characters are read.
         If [len] is negative, [add_channel st ic len] reads all bytes
         from [ic] until end-of-file is reached and adds them to the
-        rolling digest [st]. *)
+        incremental digest [st]. *)
 
 end
    (** The signature for a hash function that produces digests of length
@@ -211,5 +212,6 @@ module BLAKE512 : S
 
 module MD5 : S
   (** [MD5] is the MD5 hash function.  It produces 128-bit (16-byte) digests
-      and is not cryptographically secure at all.
+      and is not cryptographically secure at all.  It should be used only
+      for compatibility with earlier designs that mandate MD5.
       @since 5.2 *)
