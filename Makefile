@@ -476,8 +476,6 @@ ocamlc_MODULES = driver/main
 
 ocamlc$(EXE): OC_BYTECODE_LINKFLAGS += -compat-32 -g
 
-ocamlc.opt$(EXE): OC_NATIVE_LINKFLAGS += $(addprefix -cclib ,$(BYTECCLIBS))
-
 partialclean::
 	rm -f ocamlc ocamlc.exe ocamlc.opt ocamlc.opt.exe
 
