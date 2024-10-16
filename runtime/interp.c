@@ -246,6 +246,7 @@ static CAMLthread_local intnat caml_bcodcount;
 #endif
 
 static value raise_unhandled_effect;
+static void caml_init_raise_unhandled_effect(void);
 
 /* The interpreter itself */
 
@@ -293,27 +294,12 @@ value caml_bytecode_interpreter(code_t prog, asize_t prog_size,
 #endif
 
   if (prog == NULL) {           /* Interpreter is initializing */
-    static opcode_t raise_unhandled_effect_code[] = { ACC, 0, RAISE };
-    value raise_unhandled_effect_closure;
-
-    caml_register_code_fragment(
-      (char *) raise_unhandled_effect_code,
-      (char *) raise_unhandled_effect_code +
-      sizeof(raise_unhandled_effect_code),
-      DIGEST_IGNORE, NULL);
 #ifdef THREADED_CODE
     caml_init_thread_code(jumptable, Jumptbl_base);
-    caml_thread_code(raise_unhandled_effect_code,
-                     sizeof(raise_unhandled_effect_code));
 #endif
-    raise_unhandled_effect_closure = caml_alloc_small (2, Closure_tag);
-    Code_val(raise_unhandled_effect_closure) =
-      (code_t)raise_unhandled_effect_code;
-    Closinfo_val(raise_unhandled_effect_closure) = Make_closinfo(0, 2);
-    raise_unhandled_effect = raise_unhandled_effect_closure;
-    caml_register_generational_global_root(&raise_unhandled_effect);
     caml_register_generational_global_root(&caml_global_data);
     caml_init_callbacks();
+    caml_init_raise_unhandled_effect();
     return Val_unit;
   }
 
@@ -1424,4 +1410,26 @@ do_resume: {
     }
   }
 #endif
+}
+
+static void caml_init_raise_unhandled_effect(void)
+{
+  static opcode_t raise_unhandled_effect_code[] = { ACC, 0, RAISE };
+  value raise_unhandled_effect_closure;
+
+  caml_register_code_fragment(
+      (char *) raise_unhandled_effect_code,
+      (char *) raise_unhandled_effect_code +
+      sizeof(raise_unhandled_effect_code),
+      DIGEST_IGNORE, NULL);
+#ifdef THREADED_CODE
+  caml_thread_code(raise_unhandled_effect_code,
+                   sizeof(raise_unhandled_effect_code));
+#endif
+  raise_unhandled_effect_closure = caml_alloc_small (2, Closure_tag);
+  Code_val(raise_unhandled_effect_closure) =
+    (code_t)raise_unhandled_effect_code;
+  Closinfo_val(raise_unhandled_effect_closure) = Make_closinfo(0, 2);
+  raise_unhandled_effect = raise_unhandled_effect_closure;
+  caml_register_generational_global_root(&raise_unhandled_effect);
 }
