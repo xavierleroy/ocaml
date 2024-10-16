@@ -348,7 +348,9 @@ value caml_bytecode_interpreter(code_t prog, asize_t prog_size,
   extra_args = initial_extra_args;
   env = initial_env;
   accu = Val_int(0);
+  goto check_stacks;  /* resize stack if needed and run first instruction */
 
+  /* Main loop for instruction execution */
 #ifdef THREADED_CODE
 #ifdef DEBUG
  next_instr:
@@ -356,7 +358,6 @@ value caml_bytecode_interpreter(code_t prog, asize_t prog_size,
   CAMLassert(Stack_base(domain_state->current_stack) <= sp);
   CAMLassert(sp <= Stack_high(domain_state->current_stack));
 #endif
-  goto *(void *)(jumptbl_base + *pc++); /* Jump to the first instruction */
 #else
   while(1) {
 #ifdef DEBUG
