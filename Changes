@@ -257,6 +257,11 @@ ___________
   runtime assertions.
   (Antonin Décimo, review by Miod Vallat, Gabriel Scherer, and David Allsopp)
 
+- #13512, #13549, #13553: Revise bytecode implementation of callbacks
+  so that it no longer produces dangling registered bytecode fragments.
+  (Xavier Leroy, report by Jan Midtgaard, analysis by Stephen Dolan,
+   review by Miod Vallat)
+   
 ### Code generation and optimizations:
 
 - #13014: Enable compile-time option -function-sections on all previously
