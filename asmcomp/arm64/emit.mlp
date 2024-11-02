@@ -975,7 +975,9 @@ let emit_instr env i =
     | Lreloadretaddr ->
         ()
     | Lreturn ->
-        output_epilogue env (fun () -> `	ret\n`)
+        output_epilogue env (fun () ->
+          `	and	x30, x30, -2\n`; (* Mask the mark bit *)
+          `	ret\n`)
     | Llabel lbl ->
         `{emit_label lbl}:\n`
     | Lbranch lbl ->
