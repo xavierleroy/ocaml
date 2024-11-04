@@ -13,11 +13,15 @@
 /*                                                                        */
 /**************************************************************************/
 
+#define _GNU_SOURCE
 #define CAML_INTERNALS
 
 /* Signal handling, code common to the bytecode and native systems */
 
 #include <signal.h>
+#ifdef POSIX_SIGNALS
+#include <ucontext.h>
+#endif
 #include <errno.h>
 #include <stdbool.h>
 #include "caml/config.h"
@@ -583,6 +587,29 @@ void caml_free_signal_stack(void * signal_stack)
 #endif /* POSIX_SIGNALS */
 }
 
+#if defined(TARGET_amd64) && defined(SYS_linux)
+/* x86-64 experiment: emulate top-bit-ignore for RET instructions */
+
+#define TOP_BIT_MASK 0xFF00000000000000
+
+static void handle_sigsegv(int signo, siginfo_t * info, void * context)
+{
+  ucontext_t * ctx = context;
+  unsigned char * pc = (unsigned char *) ctx->uc_mcontext.gregs[REG_RIP];
+  uintnat * sp = (uintnat *) ctx->uc_mcontext.gregs[REG_RSP];
+  if (*pc == 0xC3) { /* ret instruction */
+    uintnat retaddr = *sp;  /* return address */
+    if ((retaddr & TOP_BIT_MASK) != 0) {
+      /* clear top bits in return address and re-execute the RET instruction */
+      *sp = retaddr & ~TOP_BIT_MASK;
+      return;
+    }
+  }
+  /* Die on another signal?? */
+  raise(SIGILL);
+}
+#endif
+
 #ifdef POSIX_SIGNALS
 /* This is the alternate signal stack block for domain 0 */
 static void * caml_signal_stack_0 = NULL;
@@ -596,7 +623,6 @@ void caml_init_signals(void)
   if (caml_signal_stack_0 == NULL) {
     caml_fatal_error("Failed to allocate signal stack for domain 0");
   }
-
   /* gprof installs a signal handler for SIGPROF.
      Make it run on the alternate signal stack, to prevent segfaults. */
   {
@@ -611,6 +637,16 @@ void caml_init_signals(void)
       }
     }
   }
+  /* x86-64 experiment */
+#if defined(TARGET_amd64) && defined(SYS_linux)
+  {
+    struct sigaction act;
+    act.sa_sigaction = handle_sigsegv;
+    sigemptyset(&act.sa_mask);
+    act.sa_flags = SA_ONSTACK | SA_SIGINFO;
+    sigaction(SIGSEGV, &act, NULL);
+  }
+#endif
 #endif
 }
 
@@ -619,6 +655,13 @@ void caml_terminate_signals(void)
 #ifdef POSIX_SIGNALS
   caml_free_signal_stack(caml_signal_stack_0);
   caml_signal_stack_0 = NULL;
+#endif
+#if defined(TARGET_amd64) && defined(SYS_linux)
+  {
+    struct sigaction act;
+    act.sa_handler = SIG_DFL;
+    sigaction(SIGSEGV, &act, NULL);
+  }
 #endif
 }
 

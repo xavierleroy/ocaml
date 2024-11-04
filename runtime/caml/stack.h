@@ -73,6 +73,9 @@
 #endif
 #define Saved_gc_regs(sp) (*(value **)((sp) + 24))
 #define Stack_header_size 32
+#if defined(SYS_linux)
+#define CODE_POINTER_MARK_BIT 60
+#endif
 #endif
 
 #ifdef TARGET_arm64
