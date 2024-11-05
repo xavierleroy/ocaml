@@ -975,7 +975,12 @@ let emit_instr env i =
     | Lreloadretaddr ->
         ()
     | Lreturn ->
-        output_epilogue env (fun () -> `	ret\n`)
+        output_epilogue env begin fun () ->
+          if not top_bits_ignore then
+            (* mask the top 8 bits ourselves *)
+            `	and	x30, x30, #0x00FFFFFFFFFFFFFF\n`;
+          `	ret\n`
+        end
     | Llabel lbl ->
         `{emit_label lbl}:\n`
     | Lbranch lbl ->
