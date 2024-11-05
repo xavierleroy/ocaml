@@ -169,6 +169,12 @@ G(name):
         CFI_ADJUST(-16)
 .endm
 
+.macro NORMALIZE_RETURN_ADDRESS
+#ifndef SYS_linux
+        and     x30, x30, #0x00FFFFFFFFFFFFFF /* ignore top bits */
+#endif
+.endm
+
 /* Stack switching operations */
 
 /* struct stack_info */
@@ -500,6 +506,7 @@ L(caml_call_gc):
         RESTORE_ALL_REGS
     /* Free stack space and return to caller */
         LEAVE_FUNCTION
+        NORMALIZE_RETURN_ADDRESS
         ret
         CFI_ENDPROC
 END_FUNCTION(caml_call_gc)
@@ -592,6 +599,7 @@ FUNCTION(caml_c_call)
 #endif
     /* Return */
         LEAVE_FUNCTION
+        NORMALIZE_RETURN_ADDRESS
         RET_FROM_C_CALL
         CFI_ENDPROC
 END_FUNCTION(caml_c_call)
@@ -631,6 +639,7 @@ FUNCTION(caml_c_call_stack_args)
         SWITCH_C_TO_OCAML
     /* Return */
         LEAVE_FUNCTION
+        NORMALIZE_RETURN_ADDRESS
         RET_FROM_C_CALL
         CFI_ENDPROC
 END_FUNCTION(caml_c_call_stack_args)
