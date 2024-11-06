@@ -111,6 +111,7 @@ module I : sig
   val and_: arg -> arg -> unit
   val andpd: arg -> arg -> unit
   val bswap: arg -> unit
+  val btr: arg -> arg -> unit
   val call: arg -> unit
   val cdq: unit -> unit
   val cmp: arg -> arg -> unit

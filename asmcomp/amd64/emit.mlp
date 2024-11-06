@@ -746,6 +746,7 @@ let emit_instr env fallthrough i =
       ()
   | Lreturn ->
       output_epilogue env begin fun () ->
+        I.btr (int 60) (mem64 QWORD 0 RSP);
         I.ret ()
       end
   | Llabel lbl ->
