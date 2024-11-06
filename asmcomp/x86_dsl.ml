@@ -118,7 +118,6 @@ module I = struct
   let and_ x y= emit (AND (x, y))
   let andpd x y = emit (ANDPD (x, y))
   let bswap x = emit (BSWAP x)
-  let btr x y = emit (BTR (x, y))
   let call x = emit (CALL x)
   let cdq () = emit CDQ
   let cmp x y = emit (CMP (x, y))
