@@ -48,6 +48,9 @@ Working version
 
 ### Bug fixes:
 
+- #14010: Fix miscompilation / liveness errors for string operations
+  (Mark Shinwell, Xavier Clerc)
+
 
 OCaml 5.4.0
 ---------------
