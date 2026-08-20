@@ -893,32 +893,27 @@ static void caml_parse_header(struct caml_intern_state* s,
   case Intext_magic_number_compressed:
     h->header_len = read8u(s) & 0x3F;
     h->compressed = true;
-    int overflow = 0;
-    overflow |= readvlq(s, &h->data_len);
-    if (mode == Full) {
-      overflow |= readvlq(s, &h->uncompressed_data_len);
-      overflow |= readvlq(s, &h->num_objects);
+    if (readvlq(s, &h->data_len)) goto overflow;
+    if (mode == Lengths) break;
+    if (readvlq(s, &h->uncompressed_data_len)) goto overflow;
+    if (readvlq(s, &h->num_objects)) goto overflow;
 #ifdef ARCH_SIXTYFOUR
-      (void) readvlq(s, NULL);
-      overflow |= readvlq(s, &h->whsize);
+    (void) readvlq(s, NULL);
+    if (readvlq(s, &h->whsize)) goto overflow;
 #else
-      overflow |= readvlq(s, &h->whsize);
-      (void) readvlq(s, NULL);
+    if (readvlq(s, &h->whsize)) goto overflow;
+    (void) readvlq(s, NULL);
 #endif
-    }
-    if (overflow) {
-      intern_failwith2
-        (fun_name, "object too large to be read back on this platform");
-    }
     break;
   default:
     intern_failwith2(fun_name, "bad object");
   }
   h->total_len = h->header_len + h->data_len;
-  if (h->total_len < h->data_len) {
+  if (h->total_len < h->data_len) goto overflow;
+  return;
+ overflow:
       intern_failwith2
         (fun_name, "object too large to be read back on this platform");
-  }
 }
 
 /* Decompress the input if needed.
