@@ -20,6 +20,7 @@
 /* The interface of this file is "caml/intext.h" */
 
 #include <string.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include "caml/alloc.h"
 #include "caml/callback.h"
@@ -96,8 +97,8 @@ struct caml_intern_state {
 
   header_t * intern_dest_end;
 
-  char compressed;
-  /* 1 if the compressed format is in use, 0 otherwise */
+  bool compressed;
+  /* true if the compressed format is in use, false otherwise */
 };
 
 static void init_intern_stack(struct caml_intern_state* s)
@@ -857,7 +858,7 @@ static void caml_parse_header(struct caml_intern_state* s,
   switch(h->magic) {
   case Intext_magic_number_small:
     h->header_len = 20;
-    h->compressed = 0;
+    h->compressed = false;
     h->data_len = h->uncompressed_data_len = read32u(s);
     h->num_objects = read32u(s);
 #ifdef ARCH_SIXTYFOUR
@@ -871,7 +872,7 @@ static void caml_parse_header(struct caml_intern_state* s,
   case Intext_magic_number_big:
 #ifdef ARCH_SIXTYFOUR
     h->header_len = 32;
-    h->compressed = 0;
+    h->compressed = false;
     read32u(s);
     h->data_len = h->uncompressed_data_len = read64u(s);
     h->num_objects = read64u(s);
@@ -883,7 +884,7 @@ static void caml_parse_header(struct caml_intern_state* s,
     break;
   case Intext_magic_number_compressed:
     h->header_len = read8u(s) & 0x3F;
-    h->compressed = 1;
+    h->compressed = true;
     int overflow = 0;
     overflow |= readvlq(s, &h->data_len);
     overflow |= readvlq(s, &h->uncompressed_data_len);
