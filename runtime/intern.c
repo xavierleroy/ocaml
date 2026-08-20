@@ -850,8 +850,14 @@ struct marshal_header {
   int compressed;
 };
 
+enum parse_header_mode {
+  Lengths, /* only [header_len], [data_len] and [total_len] */
+  Full,    /* all fields */
+};
+
 static void caml_parse_header(struct caml_intern_state* s,
                               const char * fun_name,
+                              enum parse_header_mode mode,
                               /*out*/ struct marshal_header * h)
 {
   h->magic = read32u(s);
@@ -860,6 +866,7 @@ static void caml_parse_header(struct caml_intern_state* s,
     h->header_len = 20;
     h->compressed = false;
     h->data_len = h->uncompressed_data_len = read32u(s);
+    if (mode == Lengths) break;
     h->num_objects = read32u(s);
 #ifdef ARCH_SIXTYFOUR
     read32u(s);
@@ -875,6 +882,7 @@ static void caml_parse_header(struct caml_intern_state* s,
     h->compressed = false;
     read32u(s);
     h->data_len = h->uncompressed_data_len = read64u(s);
+    if (mode == Lengths) break;
     h->num_objects = read64u(s);
     h->whsize = read64u(s);
 #else
@@ -887,15 +895,17 @@ static void caml_parse_header(struct caml_intern_state* s,
     h->compressed = true;
     int overflow = 0;
     overflow |= readvlq(s, &h->data_len);
-    overflow |= readvlq(s, &h->uncompressed_data_len);
-    overflow |= readvlq(s, &h->num_objects);
+    if (mode == Full) {
+      overflow |= readvlq(s, &h->uncompressed_data_len);
+      overflow |= readvlq(s, &h->num_objects);
 #ifdef ARCH_SIXTYFOUR
-    (void) readvlq(s, NULL);
-    overflow |= readvlq(s, &h->whsize);
+      (void) readvlq(s, NULL);
+      overflow |= readvlq(s, &h->whsize);
 #else
-    overflow |= readvlq(s, &h->whsize);
-    (void) readvlq(s, NULL);
+      overflow |= readvlq(s, &h->whsize);
+      (void) readvlq(s, NULL);
 #endif
+    }
     if (overflow) {
       intern_failwith2
         (fun_name, "object too large to be read back on this platform");
@@ -989,7 +999,7 @@ value caml_input_val(struct channel *chan)
   /* Parse the full header */
   s->intern_src = (unsigned char *) header;
   s->intern_src_end = s->intern_src + hlen;
-  caml_parse_header(s, "input_value", &h);
+  caml_parse_header(s, "input_value", Full, &h);
   /* Read block from channel */
   /* During channel I/O, concurrent [caml_input_val] operations
      can take place (via context switching in systhreads),
@@ -1041,7 +1051,7 @@ CAMLexport value caml_input_val_from_bytes(value str, intnat ofs)
 
   /* Initialize global state */
   intern_init(s, &Byte_u(str, ofs), caml_string_length(str) - ofs, NULL);
-  caml_parse_header(s, "input_val_from_string", &h);
+  caml_parse_header(s, "input_val_from_string", Full, &h);
   if (ofs < 0 || ofs + h.total_len < h.total_len ||
       ofs + h.total_len >= caml_string_length(str))
     caml_failwith("input_val_from_string: bad length");
@@ -1084,7 +1094,7 @@ static value caml_input_value_from_buffer(const char * fun_name,
   struct caml_intern_state* s = init_intern_state ();
 
   intern_init(s, src, len, input);
-  caml_parse_header(s, fun_name, &h);
+  caml_parse_header(s, fun_name, Full, &h);
   if (h.total_len > len)
     intern_failwith2(fun_name, "bad length");
   s->intern_src_end = s->intern_src + h.data_len;
@@ -1123,44 +1133,13 @@ CAMLexport value caml_input_value_from_block(const char * data, intnat len)
 
 CAMLprim value caml_marshal_data_size(value buff, value ofs)
 {
-  uint32_t magic;
-  int header_len;
-  uintnat data_len, total_len;
+  struct marshal_header h;
   struct caml_intern_state *s = init_intern_state ();
 
   s->intern_src = &Byte_u(buff, Long_val(ofs));
   s->intern_src_end = &Byte_u(buff, caml_string_length(buff));
-  magic = read32u(s);
-  switch(magic) {
-  case Intext_magic_number_small:
-    header_len = 20;
-    data_len = read32u(s);
-    break;
-  case Intext_magic_number_big:
-#ifdef ARCH_SIXTYFOUR
-    header_len = 32;
-    read32u(s);
-    data_len = read64u(s);
-#else
-    caml_failwith("Marshal.data_size: "
-                  "object too large to be read back on a 32-bit platform");
-#endif
-    break;
-  case Intext_magic_number_compressed:
-    header_len = read8u(s) & 0x3F;
-    if (readvlq(s, &data_len) != 0)
-      caml_failwith("Marshal.data_size: "
-                    "object too large to be read back on this platform");
-    break;
-  default:
-    caml_failwith("Marshal.data_size: bad object");
-  }
-  total_len = header_len + data_len;
-  if (total_len < data_len) {
-    caml_failwith("Marshal.data_size: "
-                  "object too large to be read back on this platform");
-  }
-  return Val_long(total_len - 16);
+  caml_parse_header(s, "Marshal.data_size", Lengths, &h);
+  return Val_long(h.total_len - 16);
 }
 
 /* Resolution of code pointers */
