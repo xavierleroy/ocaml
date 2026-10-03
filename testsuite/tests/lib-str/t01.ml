@@ -766,14 +766,37 @@ let automated_test() =
 
   start_test "Partial match for /\\(\\(a\\)b\\)+/";
   let r = Str.regexp "\\(\\(a\\)b\\)+" in
-  let valid_group n s =
-    try ignore (Str.matched_group n s); true
-    with Not_found -> true | _ -> false in
-  (* Non-regression for OSEC-2026-21.  The exact values of the
-     captured groups are not well defined, but must be valid. *)
-  test true
-    (let s = "ab" in
-     Str.string_partial_match r s 0 && valid_group 1 s && valid_group 2 s);
+  let n = 2 in
+  test_partial_match r n "a"
+    [|"a"; "~"; "~"|];
+  test_partial_match r n "ab"
+    [|"ab"; "ab"; "a"|];
+  test_partial_match r n "aba"
+    [|"aba"; "ab"; "a"|];
+
+  start_test "Partial match for /\\(..\\)*a/";
+  let r = Str.regexp "\\(..\\)*a" in
+  let n = 1 in
+  test_partial_match r n ""
+    [|""; "~"|];
+  test_partial_match r n "0"
+    [|"0"; "~"|];
+  test_partial_match r n "01"
+    [|"01"; "01"|];
+  test_partial_match r n "0123"
+    [|"0123"; "23"|];
+  test_partial_match r n "0123a"
+    [|"0123a"; "23"|];
+  start_test "Partial match for /\\(\\([ac]\\)[bd]\\)+/";
+  let r = Str.regexp {|\(\([ac]\)[bd]\)+|} in
+  let n = 2 in
+  test_partial_match r  n "ab"
+    [| "ab"; "ab"; "a" |];
+  test_partial_match r  n "abc"
+    [| "abc"; "ab"; "a" |];
+  test_partial_match r  n "abcd"
+    [| "abcd"; "cd"; "c" |];
+
 
   (** Replacement *)
   start_test "Global replacement";
