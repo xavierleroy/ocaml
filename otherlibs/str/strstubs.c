@@ -26,10 +26,12 @@ union backtrack_point {
   struct {
     value * pc;                 /* with low bit set */
     unsigned char * txt;
+    int group_depth;
   } pos;
   struct {
     unsigned char ** loc;       /* with low bit clear */
     unsigned char * val;
+    int group_depth_delta;
   } undo;
 };
 
@@ -168,6 +170,7 @@ static value re_match(value re,
   struct backtrack_stack * stack;
   union backtrack_point * sp;
   union backtrack_point back;
+  int group_depth;
   /* Checking for progress */
   progress_registers re_register;
   /* Recording matched groups */
@@ -195,6 +198,7 @@ static value re_match(value re,
   initial_stack.previous = NULL;
   stack = &initial_stack;
   sp = stack->point;
+  group_depth = 0;
   cpool = Cpool(re);
   normtable = Normtable(re);
   groups[0].start = txt;
@@ -267,7 +271,9 @@ static value re_match(value re,
       struct re_group * group = &(groups[group_no]);
       back.undo.loc = &(group->start);
       back.undo.val = group->start;
+      back.undo.group_depth_delta = -1;
       group->start = txt;
+      group_depth++;
       goto push;
     }
     case ENDGROUP: {
@@ -275,7 +281,9 @@ static value re_match(value re,
       struct re_group * group = &(groups[group_no]);
       back.undo.loc = &(group->end);
       back.undo.val = group->end;
+      back.undo.group_depth_delta = 1;
       group->end = txt;
+      group_depth--;
       goto push;
     }
     case REFGROUP: {
@@ -317,12 +325,14 @@ static value re_match(value re,
     case PUSHBACK:
       back.pos.pc = Set_tag(pc + SignedArg(instr));
       back.pos.txt = txt;
+      back.pos.group_depth = group_depth;
       goto push;
     case SETMARK: {
       int reg_no = Arg(instr);
       unsigned char ** reg = &(re_register[reg_no]);
       back.undo.loc = reg;
       back.undo.val = *reg;
+      back.undo.group_depth_delta = 0;
       *reg = txt;
       goto push;
     }
@@ -356,6 +366,7 @@ static value re_match(value re,
        was encountered. */
     if (accept_partial_match) {
       /* Backtrack group assignments to their last known good values */
+      int rollback_groups = group_depth > 0;
       while (1) {
         if (sp == stack->point) {
           struct backtrack_stack * prevstack = stack->previous;
@@ -365,8 +376,16 @@ static value re_match(value re,
           sp = stack->point + BACKTRACK_STACK_BLOCK_SIZE;
         }
         sp--;
-        if (Tag_is_set(sp->pos.pc)) break;
-        *(sp->undo.loc) = sp->undo.val;
+        if (Tag_is_set(sp->pos.pc)) {
+          if (!rollback_groups || sp->pos.group_depth == 0) break;
+          group_depth = sp->pos.group_depth;
+        } else {
+          *(sp->undo.loc) = sp->undo.val;
+          if (rollback_groups) {
+            group_depth += sp->undo.group_depth_delta;
+            if (group_depth == 0) break;
+          }
+        }
       }
       goto accept;
     }
@@ -386,6 +405,7 @@ static value re_match(value re,
       if (Tag_is_set(sp->pos.pc)) {
         pc = Clear_tag(sp->pos.pc);
         txt = sp->pos.txt;
+        group_depth = sp->pos.group_depth;
         break;
       } else {
         *(sp->undo.loc) = sp->undo.val;

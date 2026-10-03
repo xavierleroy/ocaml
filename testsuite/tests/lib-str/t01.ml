@@ -774,6 +774,12 @@ let automated_test() =
   test_partial_match r n "aba"
     [|"aba"; "ab"; "a"|];
 
+  start_test "Partial match for /\\(\\(a\\)?b\\)+/";
+  let r = Str.regexp "\\(\\(a\\)?b\\)+" in
+  let n = 2 in
+  test_partial_match r n "ba"
+    [|"ba"; "b"; "~"|];
+
   start_test "Partial match for /\\(..\\)*a/";
   let r = Str.regexp "\\(..\\)*a" in
   let n = 1 in
