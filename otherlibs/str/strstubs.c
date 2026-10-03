@@ -354,7 +354,22 @@ static value re_match(value re,
   prefix_match:
     /* We get here when matching failed because the end of text
        was encountered. */
-    if (accept_partial_match) goto accept;
+    if (accept_partial_match) {
+      /* Backtrack group assignments to their last known good values */
+      while (1) {
+        if (sp == stack->point) {
+          struct backtrack_stack * prevstack = stack->previous;
+          if (prevstack == NULL) break;
+          caml_stat_free(stack);
+          stack = prevstack;
+          sp = stack->point + BACKTRACK_STACK_BLOCK_SIZE;
+        }
+        sp--;
+        if (Tag_is_set(sp->pos.pc)) break;
+        *(sp->undo.loc) = sp->undo.val;
+      }
+      goto accept;
+    }
 
   backtrack:
     /* We get here when matching fails.  Backtrack to most recent saved
