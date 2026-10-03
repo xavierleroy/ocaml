@@ -99,6 +99,8 @@ Partial match for /\([0-9]\)[a-z]*!/
   ....
 Partial match for /\(\(a\)b\)+/
   .
+Partial match for /\(\(a\)?b\)+/
+  .
 Global replacement
   ...
 First replacement
