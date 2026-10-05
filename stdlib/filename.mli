@@ -49,7 +49,12 @@ val check_suffix : string -> string -> bool
     Under Windows ports (including Cygwin), comparison is
     case-insensitive, relying on [String.lowercase_ascii].  Note that
     this does not match exactly the interpretation of case-insensitive
-    filename equivalence from Windows.  *)
+    filename equivalence from Windows.
+
+    In the native Windows ports (excluding Cygwin), trailing dots [.]
+    and spaces at the end of [name] are removed before checking the
+    suffix.
+*)
 
 val chop_suffix : string -> string -> string
 (** [chop_suffix name suff] removes the suffix [suff] from
@@ -67,7 +72,12 @@ val chop_suffix_opt: suffix:string -> string -> string option
     this does not match exactly the interpretation of case-insensitive
     filename equivalence from Windows.
 
+    In the native Windows ports (excluding Cygwin), trailing dots [.]
+    and spaces at the end of [name] are removed before checking the
+    suffix.
+
     @since 4.08
+    @since 5.6 for the handling of trailing dots and spaces under Windows
 *)
 
 
@@ -83,7 +93,12 @@ val extension : string -> string
     If such a suffix does not exist, [extension name] is the empty
     string.
 
+    In the native Windows ports (excluding Cygwin), trailing dots [.]
+    and spaces at the end of [name] are removed before determining the
+    extension.
+
     @since 4.04
+    @since 5.6 for the handling of trailing dots and spaces under Windows
 *)
 
 val remove_extension : string -> string
@@ -91,11 +106,17 @@ val remove_extension : string -> string
     in {!Filename.extension}. If the extension is empty, the function
     returns the given file name.
 
-    The following invariant holds for any file name [s]:
+    Under Unix and Cygwin, the following invariant holds for any file name [s]:
 
     [remove_extension s ^ extension s = s]
 
+    In the native Windows ports (excluding Cygwin), trailing dots [.]
+    and spaces at the end of [name] are removed before removing the
+    extension.  Thus, [remove_extension s ^ extension s] is either [s]
+    (if the extension is empty) or [s] without trailing dots and spaces.
+
     @since 4.04
+    @since 5.6 for the handling of trailing dots and spaces under Windows
 *)
 
 val chop_extension : string -> string

@@ -77,6 +77,7 @@ module type SYSDEPS = sig
   val is_dir_sep : string -> int -> bool
   val is_relative : string -> bool
   val is_implicit : string -> bool
+  val pos_end_of_name : string -> int
   val check_suffix : string -> string -> bool
   val temp_dir_name : string
   val quote : string -> string
@@ -98,6 +99,7 @@ module Unix : SYSDEPS = struct
     is_relative n
     && not (String.starts_with ~prefix:"./" n)
     && not (String.starts_with ~prefix:"../" n)
+  let pos_end_of_name name = String.length name
   let check_suffix name suff =
     String.ends_with ~suffix:suff name
 
@@ -133,8 +135,15 @@ module Win32 : SYSDEPS = struct
     && not (String.starts_with ~prefix:".\\" n)
     && not (String.starts_with ~prefix:"../" n)
     && not (String.starts_with ~prefix:"..\\" n)
+  let pos_end_of_name name =
+    let rec skip i =
+      if i <= 0 then String.length name else
+        match name.[i - 1] with
+        | ' ' | '.' -> skip (i - 1)
+        | _ -> i
+    in skip (String.length name)
   let check_suffix filename suffix =
-    let len_s = String.length suffix and len_f = String.length filename in
+    let len_s = String.length suffix and len_f = pos_end_of_name filename in
     if len_f >= len_s then
       let r = String.sub filename (len_f - len_s) len_s in
       String.lowercase_ascii r = String.lowercase_ascii suffix
@@ -259,7 +268,14 @@ module Cygwin : SYSDEPS = struct
   let is_dir_sep = Win32.is_dir_sep
   let is_relative = Win32.is_relative
   let is_implicit = Win32.is_implicit
-  let check_suffix = Win32.check_suffix
+  let pos_end_of_name name = String.length name
+  let check_suffix filename suffix =
+    let len_s = String.length suffix and len_f = pos_end_of_name filename in
+    if len_f >= len_s then
+      let r = String.sub filename (len_f - len_s) len_s in
+      String.lowercase_ascii r = String.lowercase_ascii suffix
+    else
+      false
   let temp_dir_name = Unix.temp_dir_name
   let quote = Unix.quote
   let quote_command = Unix.quote_command
@@ -283,39 +299,40 @@ let concat dirname filename =
 
 let chop_suffix name suff =
   if check_suffix name suff
-  then String.sub name 0 (String.length name - String.length suff)
+  then String.sub name 0 (pos_end_of_name name - String.length suff)
   else invalid_arg "Filename.chop_suffix"
 
 let chop_suffix_opt ~suffix name =
   if check_suffix name suffix
-  then Some (String.sub name 0 (String.length name - String.length suffix))
+  then Some (String.sub name 0 (pos_end_of_name name - String.length suffix))
   else None
 
-let extension_len name =
+let extension_position name =
+  let pos_end = pos_end_of_name name in
   let rec check i0 i =
-    if i < 0 || is_dir_sep name i then 0
+    if i < 0 || is_dir_sep name i then pos_end
     else if name.[i] = '.' then check i0 (i - 1)
-    else String.length name - i0
+    else i0
   in
   let rec search_dot i =
-    if i < 0 || is_dir_sep name i then 0
+    if i < 0 || is_dir_sep name i then pos_end
     else if name.[i] = '.' then check i (i - 1)
     else search_dot (i - 1)
   in
-  search_dot (String.length name - 1)
+  (search_dot (pos_end - 1), pos_end)
 
 let extension name =
-  let l = extension_len name in
-  if l = 0 then "" else String.sub name (String.length name - l) l
+  let (i, j) = extension_position name in
+  if i = j then "" else String.sub name i (j - i)
 
 let chop_extension name =
-  let l = extension_len name in
-  if l = 0 then invalid_arg "Filename.chop_extension"
-  else String.sub name 0 (String.length name - l)
+  let (i, j) = extension_position name in
+  if i = j then invalid_arg "Filename.chop_extension"
+  else String.sub name 0 i
 
 let remove_extension name =
-  let l = extension_len name in
-  if l = 0 then name else String.sub name 0 (String.length name - l)
+  let (i, j) = extension_position name in
+  if i = j then name else String.sub name 0 i
 
 external open_desc: string -> open_flag list -> int -> int = "caml_sys_open"
 external close_desc: int -> unit = "caml_sys_close"
